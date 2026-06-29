@@ -16,23 +16,41 @@ mixin PlayerMixin {
   GlobalKey<VideoState> globalPlayerKey = GlobalKey<VideoState>();
   GlobalKey globalDanmuKey = GlobalKey();
 
+  /// 取当前策略与用户设置的缓冲区上限中的较大值（策略兜底，用户想调大就放开）
+  static int _effectiveBufferSizeMb() {
+    final user = AppSettingsController.instance.playerBufferSize.value;
+    final recommend = AppSettingsController
+        .instance.playerLiveBufferMode.value.recommendBufferSizeMb;
+    return user < recommend ? recommend : user;
+  }
+
   /// 播放器实例
   late final player = Player(
-    configuration: const PlayerConfiguration(
+    configuration: PlayerConfiguration(
       title: "Simple Live Player",
-      // bufferSize:
-      //     // media-kit #549
-      //     AppSettingsController.instance.playerBufferSize.value * 1024 * 1024,
+      // 缓冲区上限（MB），由用户设置和策略预设共同决定
+      bufferSize: _effectiveBufferSizeMb() * 1024 * 1024,
     ),
   );
 
-  /// 初始化播放器并设置 ao 参数
+  /// 初始化播放器并设置性能相关参数（Android 直播高码率/电视盒子场景优化）
   Future<void> initializePlayer() async {
     var pp = player.platform as NativePlayer;
 
     // media_kit 仓库更新导致的问题，临时解决办法
     if (Platform.isAndroid) {
       await pp.setProperty('force-seekable', 'yes');
+    }
+
+    if (Platform.isAndroid) {
+      final preset =
+          AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
+      // 直播场景：应用缓冲策略预设（低延迟/平衡/抗抖动）
+      for (final entry in preset.entries) {
+        await pp.setProperty(entry.key, entry.value);
+      }
+      // libmpv 的 vd-lavc 线程自动探测（CPU 核数），各模式通用
+      await pp.setProperty('vd-lavc-o', 'threads=0;');
     }
   }
 
@@ -43,10 +61,17 @@ mixin PlayerMixin {
         ? const VideoControllerConfiguration(
             vo: 'mediacodec_embed',
             hwdec: 'mediacodec',
+            androidAttachSurfaceAfterVideoParameters: false,
           )
         : VideoControllerConfiguration(
             enableHardwareAcceleration:
                 AppSettingsController.instance.hardwareDecode.value,
+            // Android 电视/盒子默认用 mediacodec_embed，
+            // 视频帧解码后直送 Surface，不走 GPU 合成，性能显著优于 vo=gpu
+            vo: 'mediacodec_embed',
+            hwdec: AppSettingsController.instance.hardwareDecode.value
+                ? 'mediacodec'
+                : 'no',
             androidAttachSurfaceAfterVideoParameters: false,
           ),
   );

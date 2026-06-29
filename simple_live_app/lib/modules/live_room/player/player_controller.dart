@@ -26,6 +26,14 @@ mixin PlayerMixin {
   GlobalKey<VideoState> globalPlayerKey = GlobalKey<VideoState>();
   GlobalKey globalDanmuKey = GlobalKey();
 
+  /// 根据用户自定义缓冲区大小与直播缓冲策略兜底值，取较大者
+  static int _effectiveBufferSizeMb() {
+    final c = AppSettingsController.instance;
+    final strategyFloor = c.playerLiveBufferMode.value.recommendBufferSizeMb;
+    final userValue = c.playerBufferSize.value;
+    return userValue < strategyFloor ? strategyFloor : userValue;
+  }
+
   /// 播放器实例
   late final player = Player(
     configuration: PlayerConfiguration(
@@ -33,10 +41,12 @@ mixin PlayerMixin {
       logLevel: AppSettingsController.instance.logEnable.value
           ? MPVLogLevel.info
           : MPVLogLevel.error,
+      // 取用户自定义与直播缓冲策略兜底的较大值
+      bufferSize: _effectiveBufferSizeMb() * 1024 * 1024,
     ),
   );
 
-  /// 初始化播放器并设置 ao 参数
+  /// 初始化播放器并设置性能参数
   Future<void> initializePlayer() async {
     var pp = player.platform as NativePlayer;
     // 设置音频输出驱动
@@ -52,6 +62,14 @@ mixin PlayerMixin {
     if(Platform.isAndroid){
       await pp.setProperty('force-seekable', 'yes');
     }
+
+    // Android 直播缓冲策略 + 基础网络参数
+    if (Platform.isAndroid) {
+      for (final e
+          in AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset.entries) {
+        await pp.setProperty(e.key, e.value);
+      }
+    }
   }
 
   /// 视频控制器
@@ -61,15 +79,23 @@ mixin PlayerMixin {
         ? VideoControllerConfiguration(
             vo: AppSettingsController.instance.videoOutputDriver.value,
             hwdec: AppSettingsController.instance.videoHardwareDecoder.value,
+            androidAttachSurfaceAfterVideoParameters: false,
           )
         : AppSettingsController.instance.playerCompatMode.value
             ? const VideoControllerConfiguration(
                 vo: 'mediacodec_embed',
                 hwdec: 'mediacodec',
+                androidAttachSurfaceAfterVideoParameters: false,
               )
             : VideoControllerConfiguration(
                 enableHardwareAcceleration:
                     AppSettingsController.instance.hardwareDecode.value,
+                // Android 默认走 mediacodec_embed，视频帧解码后直送 Surface，
+                // 绕过 GPU 合成，硬解/4K 场景性能显著优于 vo=gpu
+                vo: 'mediacodec_embed',
+                hwdec: AppSettingsController.instance.hardwareDecode.value
+                    ? 'mediacodec'
+                    : 'no',
                 androidAttachSurfaceAfterVideoParameters: false,
               ),
   );

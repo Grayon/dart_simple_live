@@ -99,6 +99,9 @@ class LocalStorageService extends GetxService {
   /// 播放器缓冲区大小
   static const String kPlayerBufferSize = "PlayerBufferSize";
 
+  /// 直播缓冲策略：0=低延迟(实时) 1=平衡(默认) 2=抗抖动(流畅优先)
+  static const String kPlayerLiveBufferMode = "PlayerLiveBufferMode";
+
   /// 播放器强制使用HTTPS
   static const String kPlayerForceHttps = "PlayerForceHttps";
 

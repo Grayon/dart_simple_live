@@ -172,6 +172,27 @@ class SettingsPage extends GetView<SettingsController> {
         AppStyle.vGap24,
         Obx(
           () => SettingsItemWidget(
+            foucsNode: controller.liveBufferModeFocusNode,
+            autofocus: controller.liveBufferModeFocusNode.isFoucsed.value,
+            title: "直播缓冲策略",
+            subtitle: "低延迟模式下更实时，抗抖动模式更流畅不易卡",
+            items: const {
+              0: "低延迟",
+              1: "平衡（推荐）",
+              2: "抗抖动",
+            },
+            value: AppSettingsController
+                .instance.playerLiveBufferMode.value.index,
+            onChanged: (e) {
+              AppSettingsController.instance.setPlayerLiveBufferMode(
+                LiveBufferMode.values[e],
+              );
+            },
+          ),
+        ),
+        AppStyle.vGap24,
+        Obx(
+          () => SettingsItemWidget(
             foucsNode: controller.scaleFoucsNode,
             autofocus: controller.scaleFoucsNode.isFoucsed.value,
             title: "画面比例",

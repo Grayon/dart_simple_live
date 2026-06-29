@@ -2,6 +2,76 @@ import 'package:simple_live_tv_app/services/local_storage_service.dart';
 
 import 'package:get/get.dart';
 
+/// 直播缓冲策略
+/// - 0 [lowLatency]    低延迟优先（几乎无缓存，实时画面，网络差时易卡顿）
+/// - 1 [balanced]      平衡（默认，兼顾延迟和流畅）
+/// - 2 [antiJitter]    抗抖动优先（缓存更大，延迟高但极少卡顿）
+enum LiveBufferMode {
+  lowLatency,
+  balanced,
+  antiJitter,
+}
+
+extension LiveBufferModeX on LiveBufferMode {
+  /// 转义成 0/1/2 存储
+  int toInt() => index;
+
+  /// mpv 属性预设
+  /// - cacheSecs:        向前缓存秒数
+  /// - audioBuffer:      音频缓冲目标（秒）
+  /// - frameDrop:        缓冲不足时是否丢视频帧（vo+none 不丢参考帧防碎裂）
+  /// - swapchainDepth:   交换链深度（防撕裂）
+  /// - demuxerReadAhead: 解复用器预读缓存（MB，和 PlayerConfiguration.bufferSize 配合）
+  /// - networkTimeout:   网络超时（秒）
+  Map<String, String> get mpvPreset {
+    switch (this) {
+      case LiveBufferMode.lowLatency:
+        return const {
+          'cache-secs': '0.5',
+          'audio-buffer': '0.05',
+          'framedrop': 'decode+vo+none',
+          'swapchain-depth': '1',
+          'cache-default': '2097152',
+          'cache-backbuffer': '524288',
+          'network-timeout': '10',
+        };
+      case LiveBufferMode.balanced:
+        return const {
+          'cache-secs': '2',
+          'audio-buffer': '0.2',
+          'framedrop': 'vo+none',
+          'swapchain-depth': '2',
+          'cache-default': '8388608',
+          'cache-backbuffer': '2097152',
+          'network-timeout': '15',
+        };
+      case LiveBufferMode.antiJitter:
+        return const {
+          'cache-secs': '8',
+          'audio-buffer': '0.4',
+          'framedrop': 'vo+none',
+          'swapchain-depth': '3',
+          'cache-default': '33554432',
+          'cache-backbuffer': '8388608',
+          'network-timeout': '20',
+        };
+    }
+  }
+
+  /// 配合 PlayerConfiguration.bufferSize 的建议值（MB）
+  /// 用户设置的 bufferSize 是「上限」，这里给的是按模式对应的最低参考值
+  int get recommendBufferSizeMb {
+    switch (this) {
+      case LiveBufferMode.lowLatency:
+        return 8;
+      case LiveBufferMode.balanced:
+        return 32;
+      case LiveBufferMode.antiJitter:
+        return 64;
+    }
+  }
+}
+
 class AppSettingsController extends GetxController {
   static AppSettingsController get instance =>
       Get.find<AppSettingsController>();
@@ -90,6 +160,10 @@ class AppSettingsController extends GetxController {
 
     playerBufferSize.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerBufferSize, 32);
+
+    playerLiveBufferMode.value = LiveBufferMode.values[
+        LocalStorageService.instance
+            .getValue(LocalStorageService.kPlayerLiveBufferMode, 1)];
 
     autoUpdateFollowEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoUpdateFollowEnable, true);
@@ -217,6 +291,14 @@ class AppSettingsController extends GetxController {
     playerBufferSize.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kPlayerBufferSize, e);
+  }
+
+  /// 直播缓冲策略：0 低延迟 / 1 平衡 / 2 抗抖动
+  var playerLiveBufferMode = LiveBufferMode.balanced.obs;
+  void setPlayerLiveBufferMode(LiveBufferMode e) {
+    playerLiveBufferMode.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kPlayerLiveBufferMode, e.toInt());
   }
 
   var playerAutoPause = false.obs;

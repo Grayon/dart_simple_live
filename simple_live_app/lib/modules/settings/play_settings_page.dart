@@ -56,6 +56,22 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     ),
                   ),
                 ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<int>(
+                    title: "直播缓冲策略",
+                    subtitle: "低延迟 = 实时优先，抗抖动 = 流畅优先",
+                    value: controller.playerLiveBufferMode.value.index,
+                    valueMap: const {
+                      0: "低延迟",
+                      1: "平衡",
+                      2: "抗抖动",
+                    },
+                    onChanged: (e) {
+                      controller.setPlayerLiveBufferMode(e);
+                    },
+                  ),
+                ),
                 // AppStyle.divider,
                 // Obx(
                 //   () => SettingsNumber(
