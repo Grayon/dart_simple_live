@@ -1,14 +1,29 @@
 name: app-dev-build-action
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "dev_v*"
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "选择要运行的 Job（不选则全跑）"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - build-android
+          - build-mac-ios
+          - build-ios
+          - build-mac
+          - build-linux
+          - build-windows
 
 jobs:
   # 打包Android（Ubuntu runner 更快更省）
   build-android:
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-android'
     runs-on: ubuntu-22.04
 
     permissions:
@@ -86,6 +101,7 @@ jobs:
 
   # 打包iOS + Mac（Xcode 仅支持 macOS runner）
   build-mac-ios:
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-ios' || inputs.jobs == 'build-mac'
     runs-on: macos-latest
 
     permissions:
@@ -106,6 +122,7 @@ jobs:
 
       # 打开MAC Desktop支持
       - name: Enable Flutter Desktop
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-mac') }}
         run: flutter config --enable-macos-desktop
 
       # 更新Flutter的packages
@@ -114,14 +131,21 @@ jobs:
           cd simple_live_app
           flutter pub get
 
+      # 安装 flutter_distributor
+      - name: Install flutter_distributor
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-mac') }}
+        run: dart pub global activate flutter_distributor
+
       #打包iOS
       - name: Build IPA
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-ios') }}
         run: |
           cd simple_live_app
           flutter build ios --release --no-codesign
 
       #创建未签名ipa
       - name: Create IPA
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-ios') }}
         run: |
           cd simple_live_app
           mkdir build/ios/iphoneos/Payload
@@ -132,54 +156,34 @@ jobs:
 
       # 上传IPA至Artifacts
       - name: Upload IPA to Artifacts
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-ios') }}
         uses: actions/upload-artifact@v5
         with:
           name: ios
           path: |
             simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
-      # 打包MAC（仅 .app bundle 上传，不再生成 dmg）
-      - name: Build MacOS
+      # 用 flutter_distributor 一步打包 macOS zip
+      - name: Package macOS zip
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-mac') }}
         run: |
           cd simple_live_app
-          flutter build macos --release
+          flutter_distributor package --platform macos --targets zip --skip-clean
 
-      # ad-hoc 深度签名 .app（含内嵌 .framework/.dylib），避免 macOS 黑屏 / 沙盒拒绝 GPU 渲染
-      - name: Ad-hoc codesign macOS .app
-        run: |
-          set -e
-          cd simple_live_app
-          APP="build/macos/Build/Products/Release/Runner.app"
-          # 先签所有内嵌二进制（.dylib/.so/可执行文件/.framework）
-          find "$APP" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -print0 |             xargs -0 -I{} codesign --force --deep --sign - --options=runtime --entitlements macos/Runner/Release.entitlements {} || true
-          # .framework 目录本身也要签
-          find "$APP" -type d -name "*.framework" -print0 |             xargs -0 -I{} codesign --force --deep --sign - --options=runtime --entitlements macos/Runner/Release.entitlements {} || true
-          # 最后签 .app 本体
-          codesign --force --deep --sign - --options=runtime --entitlements macos/Runner/Release.entitlements "$APP"
-
-      # 重命名 .app bundle（Runner → pubspec 中的 name）
-      - name: Prepare macOS .app bundle for artifact
-        run: |
-          set -e
-          cd simple_live_app
-          OUT="build/macos/Artifacts"
-          mkdir -p "$OUT"
-          APP_NAME=$(sed -n "s/^name: *//p" pubspec.yaml | head -n 1)
-          SRC="build/macos/Build/Products/Release/Runner.app"
-          DST="$OUT/$APP_NAME.app"
-          cp -R "$SRC" "$DST"
       # 上传MAC至Artifacts
       - name: Upload MacOS to Artifacts
+        if: ${{ (github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-mac-ios' || inputs.jobs == 'build-mac') }}
         uses: actions/upload-artifact@v5
         with:
           name: mac
           path: |
-            simple_live_app/build/macos/Artifacts/*.app
+            simple_live_app/build/dist/**/*.zip
       #完成
       - run: echo "🍏 iOS+macOS job status is ${{ job.status }}"
 
   # 打包Linux
   build-linux:
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-linux'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -229,6 +233,7 @@ jobs:
 
   # 打包Windows
   build-windows:
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'build-windows'
     runs-on: windows-latest
     permissions:
       contents: write

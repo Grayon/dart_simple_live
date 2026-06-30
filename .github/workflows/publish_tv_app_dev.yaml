@@ -4,8 +4,16 @@ on:
     push:
         tags:
             - "dev_tv_v*"
+    workflow_dispatch:
+        inputs:
+            run_build:
+                description: "是否运行构建"
+                required: false
+                default: true
+                type: boolean
 jobs:
     build-tv:
+        if: github.event_name == 'push' || inputs.run_build == true
         runs-on: ubuntu-22.04
         permissions:
             contents: write
