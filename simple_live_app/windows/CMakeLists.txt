@@ -31,6 +31,11 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+# Visual Studio 2026 (MSVC 14.51+) removed <experimental/coroutine>.
+# Several Flutter plugins (flutter_inappwebview_windows, permission_handler_windows)
+# still include it; the MSVC STL documents this macro as a valid opt-out while
+# plugin maintainers migrate to <coroutine> (C++20).
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Compilation settings that should be applied to most targets.
 #

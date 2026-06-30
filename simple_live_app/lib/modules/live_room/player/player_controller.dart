@@ -63,16 +63,34 @@ mixin PlayerMixin {
       await pp.setProperty('force-seekable', 'yes');
     }
 
-    // Android 直播缓冲策略 + 基础网络参数
-    if (Platform.isAndroid) {
-      for (final e
-          in AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset.entries) {
-        await pp.setProperty(e.key, e.value);
-      }
+    // 直播缓冲策略 + 基础网络参数（全平台）
+    // Android 使用完整 preset（含 swapchain-depth / mediacodec 关联项）；
+    // 桌面端只应用通用属性（swapchain-depth 仅 Android 有意义），并针对 macOS 做 ao/coreaudio 优化。
+    final preset =
+        AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
+    for (final e in preset.entries) {
+      if (!Platform.isAndroid && e.key == 'swapchain-depth') continue;
+      await pp.setProperty(e.key, e.value);
     }
+    // macOS：默认 ao 选 coreaudio（比 avfoundation 更稳、低延迟），强制 48k 采样避免
+    // CoreAudio 重采样抖动产生破音；加 audio-channels 让 mpv 主动 downmix 到 stereo
+    if (Platform.isMacOS) {
+      if (!AppSettingsController.instance.customPlayerOutput.value) {
+        await pp.setProperty('ao', 'coreaudio');
+      }
+      await pp.setProperty('audio-samplerate', '48000');
+      await pp.setProperty('audio-channels', 'stereo');
+    }
+    // 全局：避免 mpv 自动在视频/音频不同步时丢音频样本（更宁愿轻微音画偏差也不要破音）
+    await pp.setProperty('audio-stream-silence', 'yes');
   }
 
   /// 视频控制器
+  /// vo/hwdec 按平台分：
+  /// - Android: mediacodec_embed/mediacodec（视频帧直送 Surface，性能最优）
+  /// - 其他平台（macOS/Windows/Linux）：不指定 vo/hwdec，media_kit 自动走
+  ///   原生方案（macOS 用 videotoolbox hwdec，通过 Flutter Texture 渲染）。
+  ///   mediacodec_embed 是 Android 专有，桌面端指定会报 vo not found → 黑屏
   late final videoController = VideoController(
     player,
     configuration: AppSettingsController.instance.customPlayerOutput.value
@@ -82,20 +100,22 @@ mixin PlayerMixin {
             androidAttachSurfaceAfterVideoParameters: false,
           )
         : AppSettingsController.instance.playerCompatMode.value
-            ? const VideoControllerConfiguration(
-                vo: 'mediacodec_embed',
-                hwdec: 'mediacodec',
+            ? VideoControllerConfiguration(
+                vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+                hwdec: Platform.isAndroid ? 'mediacodec' : null,
                 androidAttachSurfaceAfterVideoParameters: false,
               )
             : VideoControllerConfiguration(
                 enableHardwareAcceleration:
-                    AppSettingsController.instance.hardwareDecode.value,
-                // Android 默认走 mediacodec_embed，视频帧解码后直送 Surface，
-                // 绕过 GPU 合成，硬解/4K 场景性能显著优于 vo=gpu
-                vo: 'mediacodec_embed',
-                hwdec: AppSettingsController.instance.hardwareDecode.value
-                    ? 'mediacodec'
-                    : 'no',
+                    Platform.isAndroid
+                        ? AppSettingsController.instance.hardwareDecode.value
+                        : true,
+                vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+                hwdec: Platform.isAndroid
+                    ? (AppSettingsController.instance.hardwareDecode.value
+                        ? 'mediacodec'
+                        : 'no')
+                    : null,
                 androidAttachSurfaceAfterVideoParameters: false,
               ),
   );
@@ -216,19 +236,12 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
   /// 弹幕控制器
   DanmakuController? danmakuController;
 
+  /// 待发送弹幕队列（每帧合并提交，避免高密度弹幕时一帧几十次 repaint 抖动）
+  final List<DanmakuContentItem> _pendingDanmaku = [];
+  bool _danmakuFlushScheduled = false;
+
   void initDanmakuController(DanmakuController e) {
     danmakuController = e;
-    // danmakuController?.updateOption(
-    //   DanmakuOption(
-    //     fontSize: AppSettingsController.instance.danmuSize.value,
-    //     area: AppSettingsController.instance.danmuArea.value,
-    //     duration: AppSettingsController.instance.danmuSpeed.value,
-    //     opacity: AppSettingsController.instance.danmuOpacity.value,
-    //     strokeWidth: AppSettingsController.instance.danmuStrokeWidth.value,
-    //     fontWeight: FontWeight
-    //         .values[AppSettingsController.instance.danmuFontWeight.value],
-    //   ),
-    // );
   }
 
   void updateDanmuOption(DanmakuOption? option) {
@@ -238,17 +251,33 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
 
   void disposeDanmakuController() {
     danmakuController?.clear();
+    _pendingDanmaku.clear();
+    _danmakuFlushScheduled = false;
   }
 
   void addDanmaku(List<DanmakuContentItem> items) {
     if (!showDanmakuState.value) {
       return;
     }
-    for (var item in items) {
-      danmakuController?.addDanmaku(item);
+    _pendingDanmaku.addAll(items);
+    if (!_danmakuFlushScheduled) {
+      _danmakuFlushScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _danmakuFlushScheduled = false;
+        if (_pendingDanmaku.isEmpty || danmakuController == null) {
+          _pendingDanmaku.clear();
+          return;
+        }
+        final list = List<DanmakuContentItem>.of(_pendingDanmaku);
+        _pendingDanmaku.clear();
+        for (final item in list) {
+          danmakuController?.addDanmaku(item);
+        }
+      });
     }
   }
 }
+
 mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
 

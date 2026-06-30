@@ -182,17 +182,12 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
   /// 弹幕控制器
   DanmakuController? danmakuController;
 
+  /// 待发送弹幕队列（每帧合并提交，避免高密度弹幕时一帧几十次 repaint 抖动）
+  final List<DanmakuContentItem> _pendingDanmaku = [];
+  bool _danmakuFlushScheduled = false;
+
   void initDanmakuController(DanmakuController e) {
     danmakuController = e;
-    // danmakuController?.updateOption(
-    //   DanmakuOption(
-    //     fontSize: AppSettingsController.instance.danmuSize.value.w,
-    //     area: AppSettingsController.instance.danmuArea.value,
-    //     duration: AppSettingsController.instance.danmuSpeed.value,
-    //     opacity: AppSettingsController.instance.danmuOpacity.value,
-    //     strokeWidth: AppSettingsController.instance.danmuStrokeWidth.value.w,
-    //   ),
-    // );
   }
 
   void updateDanmuOption(DanmakuOption? option) {
@@ -202,14 +197,29 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
 
   void disposeDanmakuController() {
     danmakuController?.clear();
+    _pendingDanmaku.clear();
+    _danmakuFlushScheduled = false;
   }
 
   void addDanmaku(List<DanmakuContentItem> items) {
     if (!showDanmakuState.value) {
       return;
     }
-    for (var item in items) {
-      danmakuController?.addDanmaku(item);
+    _pendingDanmaku.addAll(items);
+    if (!_danmakuFlushScheduled) {
+      _danmakuFlushScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _danmakuFlushScheduled = false;
+        if (_pendingDanmaku.isEmpty || danmakuController == null) {
+          _pendingDanmaku.clear();
+          return;
+        }
+        final list = List<DanmakuContentItem>.of(_pendingDanmaku);
+        _pendingDanmaku.clear();
+        for (final item in list) {
+          danmakuController?.addDanmaku(item);
+        }
+      });
     }
   }
 }

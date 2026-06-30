@@ -208,22 +208,28 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         messages.removeAt(0);
       }
 
-      // 关键词屏蔽检查
-      for (var keyword in AppSettingsController.instance.shieldList) {
-        Pattern? pattern;
+      // 关键词屏蔽（正则缓存，避免每条弹幕重新 RegExp 编译触发 GC 卡顿）
+      final shieldList = AppSettingsController.instance.shieldList;
+      final shieldHash = Object.hashAll(shieldList);
+      if (shieldHash != _shieldListHash) {
+        _shieldListHash = shieldHash;
+        _shieldRegexCache.clear();
+      }
+      for (final keyword in shieldList) {
+        Pattern pattern;
         if (Utils.isRegexFormat(keyword)) {
-          String removedSlash = Utils.removeRegexFormat(keyword);
-          try {
-            pattern = RegExp(removedSlash);
-          } catch (e) {
-            // should avoid this during add keyword
-            Log.d("关键词：$keyword 正则格式错误");
-          }
+          pattern = _shieldRegexCache.putIfAbsent(keyword, () {
+            try {
+              return RegExp(Utils.removeRegexFormat(keyword));
+            } catch (e) {
+              Log.d("关键词：$keyword 正则格式错误");
+              return RegExp(keyword);
+            }
+          });
         } else {
           pattern = keyword;
         }
-        if (pattern != null && msg.message.contains(pattern)) {
-          Log.d("关键词：$keyword\n已屏蔽消息内容：${msg.message}");
+        if (msg.message.contains(pattern)) {
           return;
         }
       }
