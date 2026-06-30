@@ -175,7 +175,6 @@ class SettingsPage extends GetView<SettingsController> {
             foucsNode: controller.liveBufferModeFocusNode,
             autofocus: controller.liveBufferModeFocusNode.isFoucsed.value,
             title: "直播缓冲策略",
-            subtitle: "低延迟模式下更实时，抗抖动模式更流畅不易卡",
             items: const {
               0: "低延迟",
               1: "平衡（推荐）",
