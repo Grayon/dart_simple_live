@@ -29,6 +29,9 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class LiveRoomController extends PlayerController with WidgetsBindingObserver {
+  final Map<String, RegExp> _shieldRegexCache = {};
+  int _shieldListHash = 0;
+
   final Site pSite;
   final String pRoomId;
   late LiveDanmaku liveDanmaku;
