@@ -252,7 +252,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     setPlayer();
   }
 
-  void setPlayer() async {
+  Future<void> setPlayer() async {
     if (_isOpening) {
       Log.d("setPlayer: 正在打开中，跳过");
       return;
@@ -389,7 +389,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     SmartDialog.showToast("已取消关注");
   }
 
-  void resetRoom(Site site, String roomId) async {
+  Future<void> resetRoom(Site site, String roomId) async {
     if (this.site == site && this.roomId == roomId) {
       return;
     }
@@ -480,7 +480,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       if (AppSettingsController.instance.playerAutoPause.value &&
           player.state.playing) {
         _stoppedForBackground = true;
-        await player.stop();
+        player.stop();
       }
     } else if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
