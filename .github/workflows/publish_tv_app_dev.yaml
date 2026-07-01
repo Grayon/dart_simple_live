@@ -58,6 +58,12 @@ jobs:
                   cd simple_live_tv_app
                   flutter pub get
 
+            # dev 构建改包名，与 release 版共存安装
+            - name: Change package name for dev
+              run: |
+                  cd simple_live_tv_app
+                  sed -i 's/applicationId = "com.xycz.simple_live_tv"/applicationId = "com.xycz.simple_live_tv_dev"/' android/app/build.gradle.kts
+
             #打包APK
             - name: Build APK
               run: |
