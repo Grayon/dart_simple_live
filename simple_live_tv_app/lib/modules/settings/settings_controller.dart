@@ -41,6 +41,14 @@ class SettingsController extends BaseController
   var liveBufferModeFocusNode = AppFocusNode();
   var scaleFoucsNode = AppFocusNode();
   var defaultQualityFocusNode = AppFocusNode();
+  var autoPauseFocusNode = AppFocusNode();
+  var highFpsCompatFocusNode = AppFocusNode();
+  var disableChannelSwitchFocusNode = AppFocusNode();
+  var logEnableFocusNode = AppFocusNode();
+  var customPlayerOutputFocusNode = AppFocusNode();
+  var videoOutputDriverFocusNode = AppFocusNode();
+  var audioOutputDriverFocusNode = AppFocusNode();
+  var videoHardwareDecoderFocusNode = AppFocusNode();
   var danmakuFoucsNode = AppFocusNode();
   var danmakuSizeFoucsNode = AppFocusNode();
   var danmakuSpeedFoucsNode = AppFocusNode();

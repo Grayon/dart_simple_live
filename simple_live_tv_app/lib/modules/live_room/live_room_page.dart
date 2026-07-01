@@ -97,15 +97,21 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     //   return;
     // }
 
-    // 点击上键切换上一个直播
+    // 点击上键切换上一个直播（控制器隐藏且未禁用切台时才生效）
     if (key.logicalKey == LogicalKeyboardKey.arrowUp) {
-      controller.prevChannel();
+      if (!controller.showControlsState.value &&
+          !AppSettingsController.instance.disableChannelSwitch.value) {
+        controller.prevChannel();
+      }
       return;
     }
 
-    // 点击下键切换下一个直播
+    // 点击下键切换下一个直播（控制器隐藏且未禁用切台时才生效）
     if (key.logicalKey == LogicalKeyboardKey.arrowDown) {
-      controller.nextChannel();
+      if (!controller.showControlsState.value &&
+          !AppSettingsController.instance.disableChannelSwitch.value) {
+        controller.nextChannel();
+      }
       return;
     }
   }

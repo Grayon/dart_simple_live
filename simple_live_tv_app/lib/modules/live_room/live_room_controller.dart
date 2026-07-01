@@ -63,6 +63,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var currentLineIndex = -1;
   var currentLineInfo = "".obs;
 
+  /// 是否正在执行播放操作（防止 player.open 并发调用导致 native 层资源泄漏卡死）
+  bool _isOpening = false;
+
+  /// 是否处于重试流程中（防止 mediaError/mediaEnd 重复触发重试）
+  bool _isRetrying = false;
+
+  /// 进入后台时是否因自动暂停而停止了播放（返回前台时恢复）
+  bool _stoppedForBackground = false;
+
+  /// 切台防抖（防止上下键快速连按触发多次 resetRoom）
+  bool _isSwitchingChannel = false;
+
   /// 是否处于后台
   var isBackground = false;
 
@@ -233,6 +245,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   void changePlayLine(int index) {
+    if (_isOpening) return;
     currentLineIndex = index;
     //重置错误次数
     mediaErrorRetryCount = 0;
@@ -240,57 +253,70 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   void setPlayer() async {
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
-    errorMsg.value = "";
-    // 初始化播放器并设置 ao 参数
-    await initializePlayer();
-    player.open(
-      Media(
-        playUrls[currentLineIndex],
-        httpHeaders: playHeaders,
-      ),
-    );
-
-    Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
+    if (_isOpening) {
+      Log.d("setPlayer: 正在打开中，跳过");
+      return;
+    }
+    _isOpening = true;
+    try {
+      currentLineInfo.value = "线路${currentLineIndex + 1}";
+      errorMsg.value = "";
+      await initializePlayer();
+      // 先停止旧的播放，释放 MediaCodec/Surface 资源再打开新的，
+      // 避免并发 open 导致 native 层资源泄漏卡死整个系统
+      await player.stop();
+      await player.open(
+        Media(
+          playUrls[currentLineIndex],
+          httpHeaders: playHeaders,
+        ),
+      );
+      Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
+    } catch (e) {
+      Log.d("setPlayer 异常: $e");
+    } finally {
+      _isOpening = false;
+    }
   }
 
   @override
   void mediaEnd() async {
+    if (_isRetrying || _isOpening) return;
     if (mediaErrorRetryCount < 2) {
       Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
+      _isRetrying = true;
       if (mediaErrorRetryCount == 1) {
-        //延迟一秒再刷新
         await Future.delayed(const Duration(seconds: 1));
       }
       mediaErrorRetryCount += 1;
-      //刷新一次
-      setPlayer();
+      await setPlayer();
+      _isRetrying = false;
       return;
     }
 
     Log.d("播放结束");
-    // 遍历线路，如果全部链接都断开就是直播结束了
     if (playUrls.length - 1 == currentLineIndex) {
       liveStatus.value = false;
     } else {
+      _isRetrying = true;
       changePlayLine(currentLineIndex + 1);
-
-      //setPlayer();
+      _isRetrying = false;
     }
   }
 
   int mediaErrorRetryCount = 0;
   @override
   void mediaError(String error) async {
+    if (_isRetrying || _isOpening) return;
     if (mediaErrorRetryCount < 2) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
+      _isRetrying = true;
       if (mediaErrorRetryCount == 1) {
-        //延迟一秒再刷新
         await Future.delayed(const Duration(seconds: 1));
       }
       mediaErrorRetryCount += 1;
-      //刷新一次
-      setPlayer();
+      await setPlayer();
+      _isRetrying = false;
       return;
     }
 
@@ -298,9 +324,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       errorMsg.value = "播放失败";
       SmartDialog.showToast("播放失败:$error");
     } else {
-      //currentLineIndex += 1;
-      //setPlayer();
+      _isRetrying = true;
       changePlayLine(currentLineIndex + 1);
+      _isRetrying = false;
     }
   }
 
@@ -368,6 +394,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return;
     }
 
+    // 等待当前播放操作完成，避免与 stop 竞态
+    while (_isOpening) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
     rxSite.value = site;
     rxRoomId.value = roomId;
 
@@ -380,6 +411,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku = site.liveSite.getDanmaku();
 
     // 停止播放
+    mediaErrorRetryCount = 0;
     await player.stop();
 
     // 刷新信息
@@ -387,7 +419,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   void nextChannel() {
-    //读取正在直播的频道
+    if (_isSwitchingChannel) return;
     var liveChannels = FollowUserService.instance.livingList;
     if (liveChannels.isEmpty) {
       SmartDialog.showToast("没有正在直播的频道");
@@ -395,22 +427,22 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
     var index = liveChannels
         .indexWhere((element) => element.id == "${site.id}_$roomId");
-    // if (index == -1) {
-    //   //当前频道不在列表中
-
-    //   return;
-    // }
     index += 1;
     if (index >= liveChannels.length) {
       index = 0;
     }
     var nextChannel = liveChannels[index];
-
-    resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId);
+    _isSwitchingChannel = true;
+    resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId)
+        .whenComplete(() {
+      Future.delayed(const Duration(seconds: 2), () {
+        _isSwitchingChannel = false;
+      });
+    });
   }
 
   void prevChannel() {
-    //读取正在直播的频道
+    if (_isSwitchingChannel) return;
     var liveChannels = FollowUserService.instance.livingList;
     if (liveChannels.isEmpty) {
       SmartDialog.showToast("没有正在直播的频道");
@@ -418,34 +450,46 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
     var index = liveChannels
         .indexWhere((element) => element.id == "${site.id}_$roomId");
-    // if (index == -1) {
-    //   //当前频道不在列表中
-
-    //   return;
-    // }
     index -= 1;
     if (index < 0) {
       index = liveChannels.length - 1;
     }
     var nextChannel = liveChannels[index];
-
-    resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId);
+    _isSwitchingChannel = true;
+    resetRoom(Sites.allSites[nextChannel.siteId]!, nextChannel.roomId)
+        .whenComplete(() {
+      Future.delayed(const Duration(seconds: 2), () {
+        _isSwitchingChannel = false;
+      });
+    });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
 
-    if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
       Log.d("进入后台");
       //进入后台，关闭弹幕
       danmakuController?.clear();
       isBackground = true;
-    } else
-    //返回前台
-    if (state == AppLifecycleState.resumed) {
+      // 后台自动暂停播放器，避免继续拉流消耗带宽和 CPU
+      // （Home 键 onUserLeaveHint 也会触发 paused 状态）
+      if (AppSettingsController.instance.playerAutoPause.value &&
+          player.state.playing) {
+        _stoppedForBackground = true;
+        await player.stop();
+      }
+    } else if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
       isBackground = false;
+      // 返回前台时恢复播放
+      if (_stoppedForBackground) {
+        _stoppedForBackground = false;
+        setPlayer();
+      }
     }
   }
 

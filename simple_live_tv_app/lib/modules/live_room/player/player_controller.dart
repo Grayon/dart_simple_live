@@ -28,52 +28,110 @@ mixin PlayerMixin {
   late final player = Player(
     configuration: PlayerConfiguration(
       title: "Simple Live Player",
+      logLevel: AppSettingsController.instance.logEnable.value
+          ? MPVLogLevel.info
+          : MPVLogLevel.error,
       // 缓冲区上限（MB），由用户设置和策略预设共同决定
       bufferSize: _effectiveBufferSizeMb() * 1024 * 1024,
     ),
   );
 
+  bool _playerInitialized = false;
+
   /// 初始化播放器并设置性能相关参数（Android 直播高码率/电视盒子场景优化）
   Future<void> initializePlayer() async {
+    if (_playerInitialized) return;
+    _playerInitialized = true;
+
     var pp = player.platform as NativePlayer;
+
+    // 自定义音频输出驱动
+    if (AppSettingsController.instance.customPlayerOutput.value &&
+        AppSettingsController.instance.audioOutputDriver.value.isNotEmpty) {
+      await pp.setProperty(
+        'ao',
+        AppSettingsController.instance.audioOutputDriver.value,
+      );
+    }
 
     // media_kit 仓库更新导致的问题，临时解决办法
     if (Platform.isAndroid) {
       await pp.setProperty('force-seekable', 'yes');
     }
 
-    if (Platform.isAndroid) {
-      final preset =
-          AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
-      // 直播场景：应用缓冲策略预设（低延迟/平衡/抗抖动）
-      for (final entry in preset.entries) {
-        await pp.setProperty(entry.key, entry.value);
-      }
-      // libmpv 的 vd-lavc 线程自动探测（CPU 核数），各模式通用
-      await pp.setProperty('vd-lavc-o', 'threads=0;');
+    // 直播缓冲策略 preset（全平台应用，桌面端跳过 swapchain-depth）
+    final preset =
+        AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
+    for (final entry in preset.entries) {
+      if (!Platform.isAndroid && entry.key == 'swapchain-depth') continue;
+      await pp.setProperty(entry.key, entry.value);
     }
+
+    // Android：解码器优化，防止高帧率直播源（60fps 游戏直播等）喂爆 MediaCodec
+    if (Platform.isAndroid) {
+      // vd-lavc 线程自动探测（CPU 核数）+ 快速模式（跳过部分参考帧检查）
+      await pp.setProperty('vd-lavc-o', 'threads=0;fast=1;drdd=1;');
+      // MediaCodec 用 gralloc allocator，零拷贝直送 Surface（部分盒子不支持时 mpv 会自动 fallback）
+      await pp.setProperty('mediacodec-allocator', 'gralloc');
+      // 解码器输出队列上限，防止高帧率源堆积帧阻塞 SurfaceFlinger
+      await pp.setProperty('vd-queue-max-bytes', '67108864'); // 64MB
+      await pp.setProperty('vd-queue-max-samples', '4');
+      // HDR：自动检测峰值亮度，传递色彩空间给 Surface（Android TV 普遍支持 HDR10/HLG）
+      await pp.setProperty('hdr-compute-peak', 'auto');
+      await pp.setProperty('target-colorspace-hint', 'yes');
+      // 音频声道自动检测（接功放/回音壁时正确输出多声道）
+      await pp.setProperty('audio-channels', 'auto');
+    }
+
+    // 避免 mpv 在音视频不同步时丢音频样本触发反复缓冲
+    await pp.setProperty('audio-stream-silence', 'yes');
   }
 
   /// 视频控制器
+  /// - 高帧率兼容模式：强制软解（hwdec=no），防止60fps等直播源喂爆MediaCodec卡死系统
+  /// - 自定义输出驱动模式：用户自选 vo/hwdec
+  /// - 兼容模式：Android 强制 mediacodec_embed/mediacodec，其他平台 null
+  /// - 正常模式：Android 用 mediacodec_embed，hwdec 跟随硬件解码开关；其他平台不指定
   late final videoController = VideoController(
     player,
-    configuration: AppSettingsController.instance.playerCompatMode.value
-        ? const VideoControllerConfiguration(
-            vo: 'mediacodec_embed',
-            hwdec: 'mediacodec',
+    configuration: AppSettingsController.instance.highFpsCompat.value
+        ? VideoControllerConfiguration(
+            enableHardwareAcceleration: false,
+            vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+            hwdec: Platform.isAndroid ? 'no' : null,
             androidAttachSurfaceAfterVideoParameters: false,
           )
-        : VideoControllerConfiguration(
-            enableHardwareAcceleration:
-                AppSettingsController.instance.hardwareDecode.value,
-            // Android 电视/盒子默认用 mediacodec_embed，
-            // 视频帧解码后直送 Surface，不走 GPU 合成，性能显著优于 vo=gpu
-            vo: 'mediacodec_embed',
-            hwdec: AppSettingsController.instance.hardwareDecode.value
-                ? 'mediacodec'
-                : 'no',
-            androidAttachSurfaceAfterVideoParameters: false,
-          ),
+        : AppSettingsController.instance.customPlayerOutput.value
+            ? VideoControllerConfiguration(
+                vo: AppSettingsController.instance.videoOutputDriver.value
+                        .isNotEmpty
+                    ? AppSettingsController.instance.videoOutputDriver.value
+                    : null,
+                hwdec: AppSettingsController
+                            .instance.videoHardwareDecoder.value
+                            .isNotEmpty
+                        ? AppSettingsController
+                            .instance.videoHardwareDecoder.value
+                        : null,
+                androidAttachSurfaceAfterVideoParameters: false,
+              )
+            : AppSettingsController.instance.playerCompatMode.value
+                ? VideoControllerConfiguration(
+                    vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+                    hwdec: Platform.isAndroid ? 'mediacodec' : null,
+                    androidAttachSurfaceAfterVideoParameters: false,
+                  )
+                : VideoControllerConfiguration(
+                    enableHardwareAcceleration:
+                        AppSettingsController.instance.hardwareDecode.value,
+                    vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+                    hwdec: Platform.isAndroid
+                        ? (AppSettingsController.instance.hardwareDecode.value
+                            ? 'mediacodec'
+                            : 'no')
+                        : null,
+                    androidAttachSurfaceAfterVideoParameters: false,
+                  ),
   );
 }
 mixin PlayerStateMixin on PlayerMixin {

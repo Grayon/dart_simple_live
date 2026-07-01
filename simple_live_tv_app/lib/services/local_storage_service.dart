@@ -126,6 +126,27 @@ class LocalStorageService extends GetxService {
   /// 开启多线程更新关注
   static const String kUpdateFollowThreadCount = "UpdateFollowThreadCount";
 
+  /// 日志记录开关
+  static const String kLogEnable = "LogEnable";
+
+  /// 自定义播放器输出驱动
+  static const String kCustomPlayerOutput = "CustomPlayerOutput";
+
+  /// 视频输出驱动
+  static const String kVideoOutputDriver = "VideoOutputDriver";
+
+  /// 硬件解码器
+  static const String kVideoHardwareDecoder = "VideoHardwareDecoder";
+
+  /// 音频输出驱动
+  static const String kAudioOutputDriver = "AudioOutputDriver";
+
+  /// 高帧率兼容模式（强制软解，防止60fps等直播源喂爆MediaCodec卡死系统）
+  static const String kHighFpsCompat = "HighFpsCompat";
+
+  /// 禁用上下键切台
+  static const String kDisableChannelSwitch = "DisableChannelSwitch";
+
   late Box settingsBox;
   late Box<String> shieldBox;
 

@@ -19,10 +19,11 @@ extension LiveBufferModeX on LiveBufferMode {
   /// mpv 属性预设
   /// - cacheSecs:        向前缓存秒数
   /// - audioBuffer:      音频缓冲目标（秒）
-  /// - frameDrop:        缓冲不足时是否丢视频帧（vo+none 不丢参考帧防碎裂）
+  /// - frameDrop:        缓冲不足时是否丢视频帧（含 decode 级别防止解码器被高帧率源喂爆）
   /// - swapchainDepth:   交换链深度（防撕裂）
   /// - demuxerReadAhead: 解复用器预读缓存（MB，和 PlayerConfiguration.bufferSize 配合）
   /// - networkTimeout:   网络超时（秒）
+  /// - videoSync:        视频同步模式（audio=以音频为主时钟，跟不上就丢帧）
   Map<String, String> get mpvPreset {
     switch (this) {
       case LiveBufferMode.lowLatency:
@@ -34,26 +35,29 @@ extension LiveBufferModeX on LiveBufferMode {
           'cache-default': '2097152',
           'cache-backbuffer': '524288',
           'network-timeout': '10',
+          'video-sync': 'audio',
         };
       case LiveBufferMode.balanced:
         return const {
           'cache-secs': '2',
           'audio-buffer': '0.2',
-          'framedrop': 'vo+none',
+          'framedrop': 'decode+vo+none',
           'swapchain-depth': '2',
           'cache-default': '8388608',
           'cache-backbuffer': '2097152',
           'network-timeout': '15',
+          'video-sync': 'audio',
         };
       case LiveBufferMode.antiJitter:
         return const {
           'cache-secs': '8',
           'audio-buffer': '0.4',
-          'framedrop': 'vo+none',
+          'framedrop': 'decode+vo+none',
           'swapchain-depth': '3',
           'cache-default': '33554432',
           'cache-backbuffer': '8388608',
           'network-timeout': '20',
+          'video-sync': 'audio',
         };
     }
   }
@@ -130,10 +134,10 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kRoomAutoExitDuration, 60);
 
     playerCompatMode.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kPlayerCompatMode, true);
+        .getValue(LocalStorageService.kPlayerCompatMode, false);
 
     playerAutoPause.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kPlayerAutoPause, false);
+        .getValue(LocalStorageService.kPlayerAutoPause, true);
 
     autoFullScreen.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoFullScreen, false);
@@ -164,6 +168,33 @@ class AppSettingsController extends GetxController {
     playerLiveBufferMode.value = LiveBufferMode.values[
         LocalStorageService.instance
             .getValue(LocalStorageService.kPlayerLiveBufferMode, 1)];
+
+    logEnable.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kLogEnable, false);
+
+    customPlayerOutput.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kCustomPlayerOutput, false);
+
+    videoOutputDriver.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kVideoOutputDriver,
+      'mediacodec_embed',
+    );
+
+    audioOutputDriver.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kAudioOutputDriver,
+      'audiotrack',
+    );
+
+    videoHardwareDecoder.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kVideoHardwareDecoder,
+      'mediacodec',
+    );
+
+    highFpsCompat.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kHighFpsCompat, false);
+
+    disableChannelSwitch.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kDisableChannelSwitch, false);
 
     autoUpdateFollowEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoUpdateFollowEnable, true);
@@ -415,5 +446,52 @@ class AppSettingsController extends GetxController {
     updateFollowThreadCount.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kUpdateFollowThreadCount, e);
+  }
+
+  var logEnable = false.obs;
+  void setLogEnable(bool e) {
+    logEnable.value = e;
+    LocalStorageService.instance.setValue(LocalStorageService.kLogEnable, e);
+  }
+
+  var customPlayerOutput = false.obs;
+  void setCustomPlayerOutput(bool e) {
+    customPlayerOutput.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kCustomPlayerOutput, e);
+  }
+
+  var videoOutputDriver = "mediacodec_embed".obs;
+  void setVideoOutputDriver(String e) {
+    videoOutputDriver.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kVideoOutputDriver, e);
+  }
+
+  var audioOutputDriver = "audiotrack".obs;
+  void setAudioOutputDriver(String e) {
+    audioOutputDriver.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kAudioOutputDriver, e);
+  }
+
+  var videoHardwareDecoder = "mediacodec".obs;
+  void setVideoHardwareDecoder(String e) {
+    videoHardwareDecoder.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kVideoHardwareDecoder, e);
+  }
+
+  var highFpsCompat = false.obs;
+  void setHighFpsCompat(bool e) {
+    highFpsCompat.value = e;
+    LocalStorageService.instance.setValue(LocalStorageService.kHighFpsCompat, e);
+  }
+
+  var disableChannelSwitch = false.obs;
+  void setDisableChannelSwitch(bool e) {
+    disableChannelSwitch.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kDisableChannelSwitch, e);
   }
 }
