@@ -74,6 +74,9 @@ Future initServices() async {
   //初始化设置控制器
   Get.put(AppSettingsController());
 
+  // 日志文件写入器（仅在用户开启「日志记录」时写文件）
+  Log.initWriter();
+
   Get.put(BiliBiliAccountService());
 
   Get.put(SyncService());

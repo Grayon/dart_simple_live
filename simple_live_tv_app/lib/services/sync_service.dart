@@ -145,6 +145,8 @@ class SyncService extends GetxService {
       var serverRouter = Router();
       serverRouter.get('/', _helloRequest);
       serverRouter.get('/info', _infoRequest);
+      serverRouter.get('/log', _logListRequest);
+      serverRouter.get('/log/<name>', _logFileRequest);
       serverRouter.post('/sync/follow', _syncFollowUserReuqest);
       serverRouter.post('/sync/history', _syncHistoryReuqest);
       serverRouter.post('/sync/blocked_word', _syncBlockedWordReuqest);
@@ -192,6 +194,49 @@ class SyncService extends GetxService {
       'address': ipAddress.value,
       'port': httpPort,
     });
+  }
+
+  /// 列出所有日志文件（JSON）
+  Future<shelf.Response> _logListRequest(shelf.Request request) async {
+    var files = await LogFileWriter.listFiles();
+    return toJsonResponse({
+      'status': true,
+      'logEnable': AppSettingsController.instance.logEnable.value,
+      'files': files
+          .map((f) => {
+                'name': f.name,
+                'size': f.size,
+                'time': f.time.toIso8601String(),
+                'url': 'http://${ipAddress.value}:$httpPort/log/${f.name}',
+              })
+          .toList(),
+    });
+  }
+
+  /// 下载指定日志文件（纯文本）
+  Future<shelf.Response> _logFileRequest(shelf.Request request, String name) async {
+    // 防止路径穿越
+    if (name.contains('/') || name.contains('..') || !name.endsWith('.log')) {
+      return shelf.Response(400, body: 'invalid name');
+    }
+    try {
+      var files = await LogFileWriter.listFiles();
+      var target = files.where((f) => f.name == name).toList();
+      if (target.isEmpty) {
+        return shelf.Response(404, body: 'log not found');
+      }
+      var file = File(target.first.path);
+      var content = await file.readAsString();
+      return shelf.Response.ok(
+        content,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="$name"',
+        },
+      );
+    } catch (e) {
+      return shelf.Response(500, body: e.toString());
+    }
   }
 
   /// 同步关注用户列表

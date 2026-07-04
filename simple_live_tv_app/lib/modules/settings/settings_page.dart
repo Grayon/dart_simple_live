@@ -5,9 +5,11 @@ import 'package:get/get.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_tv_app/app/log.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/modules/settings/settings_controller.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
+import 'package:simple_live_tv_app/services/sync_service.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
 import 'package:simple_live_tv_app/widgets/app_scaffold.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_button.dart';
@@ -289,7 +291,13 @@ class SettingsPage extends GetView<SettingsController> {
             value: AppSettingsController.instance.logEnable.value ? 1 : 0,
             onChanged: (e) {
               AppSettingsController.instance.setLogEnable(e == 1);
-              SmartDialog.showToast("重启生效");
+              if (e == 1) {
+                Log.initWriter();
+                SmartDialog.showToast("日志已开启");
+              } else {
+                Log.disposeWriter();
+                SmartDialog.showToast("日志已关闭");
+              }
             },
           ),
         ),
@@ -668,6 +676,25 @@ class SettingsPage extends GetView<SettingsController> {
           title: "版本",
           subtitle: "v${Utils.packageInfo.version}",
           onTap: ()=>{},
+        ),
+        AppStyle.vGap24,
+        Obx(
+          () => HighlightListTile(
+            focusNode: AppFocusNode(),
+            title: "日志访问地址",
+            subtitle: AppSettingsController.instance.logEnable.value
+                ? "http://${SyncService.instance.ipAddress.value}:23234/log"
+                : "请先在「播放」设置中开启日志记录",
+            onTap: () {
+              if (AppSettingsController.instance.logEnable.value) {
+                SmartDialog.showToast(
+                  "在同一局域网的手机/电脑浏览器打开此地址即可查看日志",
+                );
+              } else {
+                SmartDialog.showToast("请先在「播放」设置中开启日志记录");
+              }
+            },
+          ),
         ),
       ],
     );
