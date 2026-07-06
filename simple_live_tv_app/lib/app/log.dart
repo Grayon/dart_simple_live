@@ -129,6 +129,33 @@ class LogFileWriter {
     fileWriter = null;
   }
 
+  void writeSystemInfo() async {
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    write("System Info:");
+    write("Current Time: ${DateTime.now()}");
+    write("Platform: ${Platform.operatingSystem}");
+    write("Version: ${Platform.operatingSystemVersion}");
+    write("Local: ${Platform.localeName}");
+    write(
+        "App Version: ${Utils.packageInfo.version}+${Utils.packageInfo.buildNumber}");
+    try {
+      if (Platform.isAndroid) {
+        write((await deviceInfo.androidInfo).data.toString());
+      } else if (Platform.isIOS) {
+        write((await deviceInfo.iosInfo).data.toString());
+      } else if (Platform.isLinux) {
+        write((await deviceInfo.linuxInfo).data.toString());
+      } else if (Platform.isMacOS) {
+        write((await deviceInfo.macOsInfo).data.toString());
+      } else if (Platform.isWindows) {
+        write((await deviceInfo.windowsInfo).data.toString());
+      }
+    } catch (e) {
+      write("device info failed: $e");
+    }
+    write("End System Info");
+  }
+
   /// 列出当前日志目录下所有 .log 文件（路径、大小、修改时间）
   static Future<List<LogFileModel>> listFiles() async {
     try {
