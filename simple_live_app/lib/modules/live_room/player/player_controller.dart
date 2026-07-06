@@ -393,7 +393,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   }
 
   ///退出小窗模式()
-  void exitSmallWindow() async {
+  Future<void> exitSmallWindow() async {
     if (!(Platform.isAndroid || Platform.isIOS)) {
       fullScreenState.value = false;
       smallWindowState.value = false;
