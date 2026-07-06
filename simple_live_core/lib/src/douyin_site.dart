@@ -683,56 +683,50 @@ class DouyinSite implements LiveSite {
       },
     );
     var requestUrl = DouyinSign.getAbogusUrl(uri.toString(), kDefaultUserAgent);
-    var headResp = await HttpClient.instance.head(
-      'https://live.douyin.com',
-      header: headers,
-    );
-    var dyCookie = "";
-    headResp.headers["set-cookie"]?.forEach((element) {
-      var cookie = element.split(";")[0];
-      if (cookie.contains("ttwid")) {
-        dyCookie += "$cookie;";
-      }
-      if (cookie.contains("__ac_nonce")) {
-        dyCookie += "$cookie;";
-      }
-    });
+    var reqHeaders = await getRequestHeaders();
+    reqHeaders["Authority"] = 'www.douyin.com';
+    reqHeaders['accept'] = 'application/json, text/plain, */*';
+    reqHeaders['accept-language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
+    reqHeaders['priority'] = 'u=1, i';
+    reqHeaders['referer'] =
+        'https://www.douyin.com/search/${Uri.encodeComponent(keyword)}?type=live';
+    reqHeaders['sec-ch-ua'] =
+        '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"';
+    reqHeaders['sec-ch-ua-mobile'] = '?0';
+    reqHeaders['sec-ch-ua-platform'] = '"Windows"';
+    reqHeaders['sec-fetch-dest'] = 'empty';
+    reqHeaders['sec-fetch-mode'] = 'cors';
+    reqHeaders['sec-fetch-site'] = 'same-origin';
 
+    _logDebug("搜索直播间: keyword=$keyword, url=$requestUrl");
     var result = await HttpClient.instance.getJson(
       requestUrl,
       queryParameters: {},
-      header: {
-        "Authority": 'www.douyin.com',
-        'accept': 'application/json, text/plain, */*',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'cookie': dyCookie,
-        'priority': 'u=1, i',
-        'referer':
-            'https://www.douyin.com/search/${Uri.encodeComponent(keyword)}?type=live',
-        'sec-ch-ua':
-            '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'user-agent': kDefaultUserAgent,
-      },
+      header: reqHeaders,
     );
+    _logDebug("搜索直播间响应: $result");
     if (result == "" || result == 'blocked') {
       throw Exception("抖音直播搜索被限制，请稍后再试");
     }
+    if (result["status_code"] != 0 && result["status_code"] != null) {
+      throw Exception("抖音搜索失败: ${result["status_msg"] ?? result["status_code"]}");
+    }
     var items = <LiveRoomItem>[];
     for (var item in result["data"] ?? []) {
-      var itemData = json.decode(item["lives"]["rawdata"].toString());
-      var roomItem = LiveRoomItem(
-        roomId: itemData["owner"]["web_rid"].toString(),
-        title: itemData["title"].toString(),
-        cover: itemData["cover"]["url_list"][0].toString(),
-        userName: itemData["owner"]["nickname"].toString(),
-        online: int.tryParse(itemData["stats"]["total_user"].toString()) ?? 0,
-      );
-      items.add(roomItem);
+      try {
+        var itemData = json.decode(item["lives"]["rawdata"].toString());
+        var roomItem = LiveRoomItem(
+          roomId: itemData["owner"]["web_rid"].toString(),
+          title: itemData["title"].toString(),
+          cover: itemData["cover"]["url_list"][0].toString(),
+          userName: itemData["owner"]["nickname"].toString(),
+          online:
+              int.tryParse(itemData["stats"]["total_user"].toString()) ?? 0,
+        );
+        items.add(roomItem);
+      } catch (e) {
+        _logDebug("解析搜索结果失败: $e, item=$item");
+      }
     }
     return LiveSearchRoomResult(hasMore: items.length >= 10, items: items);
   }
@@ -783,56 +777,49 @@ class DouyinSite implements LiveSite {
       },
     );
     var requestUrl = DouyinSign.getAbogusUrl(uri.toString(), kDefaultUserAgent);
-    var headResp = await HttpClient.instance.head(
-      'https://live.douyin.com',
-      header: headers,
-    );
-    var dyCookie = "";
-    headResp.headers["set-cookie"]?.forEach((element) {
-      var cookie = element.split(";")[0];
-      if (cookie.contains("ttwid")) {
-        dyCookie += "$cookie;";
-      }
-      if (cookie.contains("__ac_nonce")) {
-        dyCookie += "$cookie;";
-      }
-    });
+    var reqHeaders = await getRequestHeaders();
+    reqHeaders["Authority"] = 'www.douyin.com';
+    reqHeaders['accept'] = 'application/json, text/plain, */*';
+    reqHeaders['accept-language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
+    reqHeaders['priority'] = 'u=1, i';
+    reqHeaders['referer'] =
+        'https://www.douyin.com/search/${Uri.encodeComponent(keyword)}?type=user';
+    reqHeaders['sec-ch-ua'] =
+        '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"';
+    reqHeaders['sec-ch-ua-mobile'] = '?0';
+    reqHeaders['sec-ch-ua-platform'] = '"Windows"';
+    reqHeaders['sec-fetch-dest'] = 'empty';
+    reqHeaders['sec-fetch-mode'] = 'cors';
+    reqHeaders['sec-fetch-site'] = 'same-origin';
 
+    _logDebug("搜索主播: keyword=$keyword, url=$requestUrl");
     var result = await HttpClient.instance.getJson(
       requestUrl,
       queryParameters: {},
-      header: {
-        "Authority": 'www.douyin.com',
-        'accept': 'application/json, text/plain, */*',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'cookie': dyCookie,
-        'priority': 'u=1, i',
-        'referer':
-            'https://www.douyin.com/search/${Uri.encodeComponent(keyword)}?type=user',
-        'sec-ch-ua':
-            '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'user-agent': kDefaultUserAgent,
-      },
+      header: reqHeaders,
     );
+    _logDebug("搜索主播响应: $result");
     if (result == "" || result == 'blocked') {
       throw Exception("抖音主播搜索被限制，请稍后再试");
     }
+    if (result["status_code"] != 0 && result["status_code"] != null) {
+      throw Exception("抖音搜索失败: ${result["status_msg"] ?? result["status_code"]}");
+    }
     var items = <LiveAnchorItem>[];
     for (var item in result["data"] ?? []) {
-      var user = item["user"] ?? {};
-      var anchorItem = LiveAnchorItem(
-        roomId: user["web_rid"]?.toString() ?? "",
-        avatar: (user["avatar_thumb"]?["url_list"]?[0] ?? "").toString(),
-        userName: user["nickname"]?.toString() ?? "",
-        liveStatus: (user["room_id_str"]?.toString() ?? "").isNotEmpty &&
-            (user["room_id_str"]?.toString() ?? "0") != "0",
-      );
-      items.add(anchorItem);
+      try {
+        var user = item["user"] ?? {};
+        var anchorItem = LiveAnchorItem(
+          roomId: user["web_rid"]?.toString() ?? "",
+          avatar: (user["avatar_thumb"]?["url_list"]?[0] ?? "").toString(),
+          userName: user["nickname"]?.toString() ?? "",
+          liveStatus: (user["room_id_str"]?.toString() ?? "").isNotEmpty &&
+              (user["room_id_str"]?.toString() ?? "0") != "0",
+        );
+        items.add(anchorItem);
+      } catch (e) {
+        _logDebug("解析主播搜索结果失败: $e, item=$item");
+      }
     }
     return LiveSearchAnchorResult(hasMore: items.length >= 10, items: items);
   }
