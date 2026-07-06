@@ -375,26 +375,33 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       var height = player.state.height ?? 9;
 
       // 横屏还是竖屏
+      Size smallSize;
+      double aspectRatio;
       if (height > width) {
-        var aspectRatio = width / height;
-        windowManager.setSize(Size(400, 400 / aspectRatio));
+        aspectRatio = width / height;
+        smallSize = Size(400, 400 / aspectRatio);
       } else {
-        var aspectRatio = height / width;
-        windowManager.setSize(Size(280 / aspectRatio, 280));
+        aspectRatio = height / width;
+        smallSize = Size(280 / aspectRatio, 280);
       }
+      await windowManager.setSize(smallSize);
+      // 锁定宽高比，跨显示器拖动时 macOS 不会因 DPI 差异自动改大小
+      await windowManager.setAspectRatio(aspectRatio);
 
       windowManager.setAlwaysOnTop(true);
     }
   }
 
   ///退出小窗模式()
-  void exitSmallWindow() {
+  void exitSmallWindow() async {
     if (!(Platform.isAndroid || Platform.isIOS)) {
       fullScreenState.value = false;
       smallWindowState.value = false;
       windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      windowManager.setSize(_lastWindowSize!);
-      windowManager.setPosition(_lastWindowPosition!);
+      // 先解除宽高比锁定，否则 setSize 恢复正常尺寸时会被约束
+      await windowManager.setAspectRatio(-1);
+      await windowManager.setSize(_lastWindowSize!);
+      await windowManager.setPosition(_lastWindowPosition!);
       windowManager.setAlwaysOnTop(false);
       //windowManager.setAlignment(Alignment.center);
     }
@@ -713,7 +720,8 @@ class PlayerController extends BaseController
         PlayerStateMixin,
         PlayerDanmakuMixin,
         PlayerSystemMixin,
-        PlayerGestureControlMixin {
+        PlayerGestureControlMixin,
+        WindowListener {
   @override
   void onInit() {
     initSystem();
@@ -721,6 +729,7 @@ class PlayerController extends BaseController
     //设置音量
     player.setVolume(AppSettingsController.instance.playerVolume.value);
     super.onInit();
+    windowManager.addListener(this);
   }
 
   StreamSubscription<String>? _errorSubscription;
@@ -889,10 +898,22 @@ class PlayerController extends BaseController
   }
 
   @override
+  void onWindowMoved() {
+    // 小窗模式下用户拖动窗口（可能跨显示器），实时更新保存的位置，
+    // 这样退出小窗时回到用户最后所在屏幕，而不是进入小窗时的旧屏幕
+    if (smallWindowState.value) {
+      windowManager.getPosition().then((pos) {
+        _lastWindowPosition = pos;
+      });
+    }
+  }
+
+  @override
   void onClose() async {
     Log.w("播放器关闭");
+    windowManager.removeListener(this);
     if (smallWindowState.value) {
-      exitSmallWindow();
+      await exitSmallWindow();
     }
     disposeStream();
     disposeDanmakuController();

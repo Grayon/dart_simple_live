@@ -1026,6 +1026,13 @@ ${error?.stackTrace}''');
     if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
       isBackground = false;
+    } else
+    // 桌面端窗口被遮挡（macOS inactive/hidden）：不清空弹幕，只阻断新增，
+    // 避免遮挡期间弹幕在队列堆积、切回前台一次性 flush 导致卡顿
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      Log.d("窗口失活：$state");
+      isBackground = true;
     }
   }
 
