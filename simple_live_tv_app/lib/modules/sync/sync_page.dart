@@ -156,13 +156,14 @@ class SyncPage extends GetView<SyncController> {
                       AppStyle.vGap16,
                       Obx(
                         () => Visibility(
-                          visible: SyncService.instance.httpRunning.value,
+                          visible: SyncService.instance.httpRunning.value &&
+                              SyncService.instance.ipAddress.value.isNotEmpty,
                           child: GestureDetector(
                             onTap: () {
                               Get.back();
                             },
                             child: QrImageView(
-                              data: SyncService.instance.ipAddress.value,
+                              data: 'http://${SyncService.instance.ipAddress.value}:${SyncService.httpPort}',
                               version: QrVersions.auto,
                               backgroundColor: Colors.white,
                               padding: AppStyle.edgeInsetsA24,

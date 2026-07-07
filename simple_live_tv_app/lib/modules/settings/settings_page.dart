@@ -683,7 +683,9 @@ class SettingsPage extends GetView<SettingsController> {
             focusNode: AppFocusNode(),
             title: "日志访问地址",
             subtitle: AppSettingsController.instance.logEnable.value
-                ? "http://${SyncService.instance.ipAddress.value}:23234/log"
+                ? (SyncService.instance.ipAddress.value.isNotEmpty
+                    ? "http://${SyncService.instance.ipAddress.value}:23234/log"
+                    : "正在获取本机IP，请稍候...")
                 : "请先在「播放」设置中开启日志记录",
             onTap: () {
               if (AppSettingsController.instance.logEnable.value) {
