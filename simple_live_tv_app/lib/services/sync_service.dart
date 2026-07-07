@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -33,6 +34,7 @@ class SyncService extends GetxService {
   var ipAddress = "".obs;
   var httpRunning = false.obs;
   var httpErrorMsg = "".obs;
+  Timer? _ipRefreshTimer;
 
   var deviceId = "";
   @override
@@ -95,27 +97,43 @@ class SyncService extends GetxService {
   }
 
   /// 读取本地IP
-  /// - 如果是wifi，直接获取wifi的IP
-  /// - 如果是有线，获取所有的IP，找到全部的IP
+  /// - 优先取 Ethernet (eth0)，其次 WiFi (wlan0)，最后取第一个非回环 IPv4
+  /// - 只返回单个 IP，避免多接口时拼接产生无效 URL
   Future<String> getLocalIP() async {
-    var ip = await networkInfo.getWifiIP();
-    if (ip == null || ip.isEmpty) {
-      var interfaces = await NetworkInterface.list();
-      var ipList = <String>[];
-      for (var interface in interfaces) {
-        for (var addr in interface.addresses) {
-          if (addr.type.name == 'IPv4' &&
-              !addr.address.startsWith('127') &&
-              !addr.isMulticast &&
-              !addr.isLoopback) {
-            ipList.add(addr.address);
-            break;
-          }
+    var interfaces = await NetworkInterface.list();
+    String? ethernetIp;
+    String? wifiIp;
+    String? firstIp;
+
+    for (var interface in interfaces) {
+      for (var addr in interface.addresses) {
+        if (addr.type.name != 'IPv4' ||
+            addr.isLoopback ||
+            addr.isMulticast ||
+            addr.address.startsWith('127')) {
+          continue;
+        }
+        firstIp ??= addr.address;
+        var name = interface.name.toLowerCase();
+        if (name.startsWith('eth') || name.startsWith('wlan') == false && name.contains('ethernet')) {
+          ethernetIp ??= addr.address;
+        } else if (name.startsWith('wlan')) {
+          wifiIp ??= addr.address;
         }
       }
-      ip = ipList.join(';');
     }
-    return ip;
+
+    // 尝试通过 network_info_plus 获取 WiFi IP 作为补充
+    if (wifiIp == null && ethernetIp == null) {
+      try {
+        var wifiIp2 = await networkInfo.getWifiIP();
+        if (wifiIp2 != null && wifiIp2.isNotEmpty && !wifiIp2.startsWith('127')) {
+          return wifiIp2;
+        }
+      } catch (_) {}
+    }
+
+    return ethernetIp ?? wifiIp ?? firstIp ?? '';
   }
 
   Future<String> getDeviceName() async {
@@ -166,6 +184,16 @@ class SyncService extends GetxService {
       var ip = await getLocalIP();
       ipAddress.value = ip;
 
+      // 每 30 秒刷新一次 IP，应对网络切换（WiFi↔有线）
+      _ipRefreshTimer?.cancel();
+      _ipRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+        var newIp = await getLocalIP();
+        if (newIp.isNotEmpty && newIp != ipAddress.value) {
+          ipAddress.value = newIp;
+          Log.d('IP changed to $newIp');
+        }
+      });
+
       Log.d('Serving at http://$ip:${server.port}');
     } catch (e) {
       httpErrorMsg.value = e.toString();
@@ -199,15 +227,19 @@ class SyncService extends GetxService {
   /// 列出所有日志文件（JSON）
   Future<shelf.Response> _logListRequest(shelf.Request request) async {
     var files = await LogFileWriter.listFiles();
+    // 使用请求方实际连接的 host，避免 ipAddress 为空或多网卡时 URL 错误
+    var host = request.requestedUri.host;
+    var port = request.requestedUri.port;
     return toJsonResponse({
       'status': true,
       'logEnable': AppSettingsController.instance.logEnable.value,
+      'ip': ipAddress.value,
       'files': files
           .map((f) => {
                 'name': f.name,
                 'size': f.size,
                 'time': f.time.toIso8601String(),
-                'url': 'http://${ipAddress.value}:$httpPort/log/${f.name}',
+                'url': 'http://$host:$port/log/${Uri.encodeComponent(f.name)}',
               })
           .toList(),
     });
@@ -215,6 +247,7 @@ class SyncService extends GetxService {
 
   /// 下载指定日志文件（纯文本）
   Future<shelf.Response> _logFileRequest(shelf.Request request, String name) async {
+    name = Uri.decodeComponent(name);
     // 防止路径穿越
     if (name.contains('/') || name.contains('..') || !name.endsWith('.log')) {
       return shelf.Response(400, body: 'invalid name');
@@ -369,6 +402,7 @@ class SyncService extends GetxService {
   @override
   void onClose() {
     Log.d('SyncService close');
+    _ipRefreshTimer?.cancel();
     udp?.close();
     server?.close(force: true);
     super.onClose();

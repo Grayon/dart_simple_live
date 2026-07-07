@@ -176,7 +176,7 @@ class SyncPage extends GetView<SyncController> {
                         () => Visibility(
                           visible: SyncService.instance.httpRunning.value,
                           child: Text(
-                            '服务已启动：${SyncService.instance.ipAddress.value.split(';').map((e) => '$e:${SyncService.httpPort}').join('；')}',
+                            '服务已启动：${SyncService.instance.ipAddress.value}:${SyncService.httpPort}',
                             style: AppStyle.textStyleWhite,
                             textAlign: TextAlign.center,
                           ),
