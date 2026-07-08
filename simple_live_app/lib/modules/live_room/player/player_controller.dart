@@ -376,17 +376,12 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
       // 横屏还是竖屏
       Size smallSize;
-      double aspectRatio;
       if (height > width) {
-        aspectRatio = width / height;
-        smallSize = Size(400, 400 / aspectRatio);
+        smallSize = Size(400, 400 * height / width);
       } else {
-        aspectRatio = height / width;
-        smallSize = Size(280 / aspectRatio, 280);
+        smallSize = Size(280 * width / height, 280);
       }
       await windowManager.setSize(smallSize);
-      // 锁定宽高比，跨显示器拖动时 macOS 不会因 DPI 差异自动改大小
-      await windowManager.setAspectRatio(aspectRatio);
 
       windowManager.setAlwaysOnTop(true);
     }
