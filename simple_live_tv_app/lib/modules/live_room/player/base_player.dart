@@ -18,6 +18,7 @@ class PlayerState {
 /// 播放器日志级别
 enum PlayerLogLevel {
   none,
+  fatal,
   error,
   warn,
   info,
@@ -91,6 +92,12 @@ abstract class BasePlayer {
 
   /// 释放播放器（不可再使用）
   Future<void> dispose();
+
+  /// 完全重建播放器（用于 VO/解码器崩溃后恢复）
+  ///
+  /// 当 vo/libmpv 报 "No render context set" 或 MediaCodec 状态机崩溃时，
+  /// 仅 stop()+open() 无法恢复，必须完全销毁并重建底层播放器和渲染器。
+  Future<void> recreate();
 
   /// 设置播放器属性（如 mpv 的 setProperty）
   Future<void> setProperty(String key, String value);

@@ -8,21 +8,37 @@ import 'base_player.dart';
 
 /// media_kit (mpv) 播放器实现
 class MediaKitPlayer implements BasePlayer {
-  late final Player _player;
-  late final VideoController _videoController;
+  final PlayerConfig _config;
+  Player _player;
+  VideoController? _videoController;
   VideoRenderConfig? _currentRenderConfig;
+  bool _disposed = false;
 
-  MediaKitPlayer(PlayerConfig config) {
-    _player = Player(
-      configuration: PlayerConfiguration(
-        title: config.title,
-        logLevel: _toMpvLogLevel(config.logLevel),
-        bufferSize: config.bufferSizeBytes,
-      ),
-    );
-  }
+  // 广播流控制器，recreate 时重新绑定底层流
+  final _playingController = StreamController<bool>.broadcast();
+  final _bufferingController = StreamController<bool>.broadcast();
+  final _widthController = StreamController<int?>.broadcast();
+  final _heightController = StreamController<int?>.broadcast();
+  final _errorController = StreamController<String>.broadcast();
+  final _completedController = StreamController<bool>.broadcast();
+  final _logController = StreamController<PlayerLogEntry>.broadcast();
 
-  VideoController get videoController => _videoController;
+  // 重建通知（PlayerVideo 监听此流来重建渲染器）
+  final _recreateController = StreamController<void>.broadcast();
+  Stream<void> get recreateStream => _recreateController.stream;
+
+  List<StreamSubscription> _subscriptions = [];
+
+  MediaKitPlayer(this._config)
+      : _player = Player(
+          configuration: PlayerConfiguration(
+            title: _config.title,
+            logLevel: _toMpvLogLevel(_config.logLevel),
+            bufferSize: _config.bufferSizeBytes,
+          ),
+        );
+
+  VideoController? get videoController => _videoController;
 
   void initVideoController(VideoRenderConfig config) {
     _currentRenderConfig = config;
@@ -36,6 +52,40 @@ class MediaKitPlayer implements BasePlayer {
             config.androidAttachSurfaceAfterVideoParameters,
       ),
     );
+    _bindStreams();
+  }
+
+  void _bindStreams() {
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
+    _subscriptions = [];
+
+    _subscriptions.add(
+      _player.stream.playing.listen((e) => _playingController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.buffering.listen((e) => _bufferingController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.width.listen((e) => _widthController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.height.listen((e) => _heightController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.error.listen((e) => _errorController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.completed
+          .map((e) => e == true)
+          .listen((e) => _completedController.add(e)),
+    );
+    _subscriptions.add(
+      _player.stream.log
+          .map(_toPlayerLogEntry)
+          .listen((e) => _logController.add(e)),
+    );
   }
 
   @override
@@ -47,27 +97,25 @@ class MediaKitPlayer implements BasePlayer {
       );
 
   @override
-  Stream<bool> get playingStream => _player.stream.playing;
+  Stream<bool> get playingStream => _playingController.stream;
 
   @override
-  Stream<bool> get bufferingStream => _player.stream.buffering;
+  Stream<bool> get bufferingStream => _bufferingController.stream;
 
   @override
-  Stream<int?> get widthStream => _player.stream.width;
+  Stream<int?> get widthStream => _widthController.stream;
 
   @override
-  Stream<int?> get heightStream => _player.stream.height;
+  Stream<int?> get heightStream => _heightController.stream;
 
   @override
-  Stream<String> get errorStream => _player.stream.error;
+  Stream<String> get errorStream => _errorController.stream;
 
   @override
-  Stream<bool> get completedStream =>
-      _player.stream.completed.map((e) => e == true);
+  Stream<bool> get completedStream => _completedController.stream;
 
   @override
-  Stream<PlayerLogEntry> get logStream =>
-      _player.stream.log.map(_toPlayerLogEntry);
+  Stream<PlayerLogEntry> get logStream => _logController.stream;
 
   @override
   Future<void> open(String url, {Map<String, String>? headers}) async {
@@ -83,7 +131,63 @@ class MediaKitPlayer implements BasePlayer {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
     await _player.dispose();
+    await _playingController.close();
+    await _bufferingController.close();
+    await _widthController.close();
+    await _heightController.close();
+    await _errorController.close();
+    await _completedController.close();
+    await _logController.close();
+    await _recreateController.close();
+  }
+
+  @override
+  Future<void> recreate() async {
+    if (_disposed) return;
+    final renderConfig = _currentRenderConfig;
+
+    // 取消旧订阅
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
+    _subscriptions = [];
+
+    // 销毁旧播放器和渲染器
+    await _player.dispose();
+
+    // 创建新播放器
+    _player = Player(
+      configuration: PlayerConfiguration(
+        title: _config.title,
+        logLevel: _toMpvLogLevel(_config.logLevel),
+        bufferSize: _config.bufferSizeBytes,
+      ),
+    );
+
+    // 重建 VideoController
+    if (renderConfig != null) {
+      _videoController = VideoController(
+        _player,
+        configuration: VideoControllerConfiguration(
+          enableHardwareAcceleration: renderConfig.enableHardwareAcceleration,
+          vo: renderConfig.vo,
+          hwdec: renderConfig.hwdec,
+          androidAttachSurfaceAfterVideoParameters:
+              renderConfig.androidAttachSurfaceAfterVideoParameters,
+        ),
+      );
+    }
+
+    // 重新绑定流
+    _bindStreams();
+
+    // 通知 PlayerVideo 重建渲染器
+    _recreateController.add(null);
   }
 
   @override
@@ -100,8 +204,6 @@ class MediaKitPlayer implements BasePlayer {
 
   @override
   Future<void> applyVideoRenderConfig(VideoRenderConfig config) async {
-    // vo/hwdec 不能运行时切换，需要重建 VideoController
-    // 这里只处理可以运行时设置的属性
     if (config.hwdec != null && Platform.isAndroid) {
       await setProperty('hwdec', config.hwdec!);
     }
@@ -135,6 +237,8 @@ class MediaKitPlayer implements BasePlayer {
 
   PlayerLogLevel _fromMpvLogLevel(String level) {
     switch (level) {
+      case 'fatal':
+        return PlayerLogLevel.fatal;
       case 'error':
         return PlayerLogLevel.error;
       case 'warn':

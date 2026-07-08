@@ -69,18 +69,27 @@ mixin PlayerMixin {
     if (c.playerCompatMode.value) {
       return VideoRenderConfig(
         vo: Platform.isAndroid ? 'mediacodec_embed' : null,
-        hwdec: Platform.isAndroid ? 'mediacodec' : null,
+        hwdec: Platform.isAndroid ? 'mediacodec-copy' : null,
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
+    // Android TV 默认使用 mediacodec-copy（仍硬解，多一次帧拷贝但更稳定）
+    // 零拷贝模式在部分电视芯片上播放高码率流时 Surface 初始化时序不对
+    final hwdec = forceCopyHwdec
+        ? 'mediacodec-copy'
+        : (c.hardwareDecode.value ? 'mediacodec-copy' : 'no');
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? 'mediacodec_embed' : null,
-      hwdec: Platform.isAndroid
-          ? (c.hardwareDecode.value ? 'mediacodec' : 'no')
-          : null,
+      hwdec: Platform.isAndroid ? hwdec : null,
       androidAttachSurfaceAfterVideoParameters: true,
     );
+  }
+
+  /// 完全重建播放器（VO/解码器崩溃后恢复）
+  Future<void> recreatePlayer() async {
+    await player.recreate();
+    _playerInitialized = false;
   }
 
   /// 初始化播放器并设置性能相关参数
@@ -303,6 +312,14 @@ class PlayerController extends BaseController
     });
     _logSubscription = player.logStream.listen((event) {
       Log.d("播放器日志：PlayerLog(prefix: ${event.prefix}, level: ${event.level.name}, text: ${event.text})");
+      // VO 子系统崩溃（fatal 级别），errorStream 不会收到，
+      // 必须从日志流中检测并主动重建播放器
+      if (event.level == PlayerLogLevel.fatal &&
+          (event.text.contains('No render context set') ||
+              event.text.contains('Error opening/initializing the selected video_out'))) {
+        Log.e("检测到 VO 崩溃: ${event.text}");
+        _handleVoFatal();
+      }
     });
     _widthSubscription = player.widthStream.listen((event) {
       final s = player.state;
@@ -327,6 +344,20 @@ class PlayerController extends BaseController
   void mediaEnd() {}
 
   void mediaError(String error) {}
+
+  /// VO 子系统崩溃时的恢复回调（由 LiveRoomController 实现）
+  Future<void> onVoFatal() async {}
+
+  bool _voFatalHandled = false;
+
+  void _handleVoFatal() async {
+    if (_voFatalHandled) return;
+    _voFatalHandled = true;
+    forceCopyHwdec = true;
+    await recreatePlayer();
+    await onVoFatal();
+    _voFatalHandled = false;
+  }
 
   @override
   void onClose() async {

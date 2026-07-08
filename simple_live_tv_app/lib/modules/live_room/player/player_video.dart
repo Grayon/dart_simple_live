@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -23,6 +25,7 @@ class PlayerVideoConfig {
 /// 视频渲染组件
 ///
 /// 封装 media_kit 的 Video widget，对外暴露统一接口。
+/// 监听 player.recreateStream 以在播放器重建后自动重建渲染器。
 class PlayerVideo extends StatefulWidget {
   final MediaKitPlayer player;
   final GlobalKey<VideoState>? videoKey;
@@ -40,6 +43,22 @@ class PlayerVideo extends StatefulWidget {
 }
 
 class PlayerVideoState extends State<PlayerVideo> {
+  StreamSubscription<void>? _recreateSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _recreateSub = widget.player.recreateStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _recreateSub?.cancel();
+    super.dispose();
+  }
+
   void updateVideoDisplay({double? aspectRatio, BoxFit? fit}) {
     widget.videoKey?.currentState?.update(
       aspectRatio: aspectRatio,
@@ -49,9 +68,13 @@ class PlayerVideoState extends State<PlayerVideo> {
 
   @override
   Widget build(BuildContext context) {
+    final vc = widget.player.videoController;
+    if (vc == null) {
+      return const SizedBox.expand(child: ColoredBox(color: Colors.black));
+    }
     return Video(
       key: widget.videoKey,
-      controller: widget.player.videoController,
+      controller: vc,
       pauseUponEnteringBackgroundMode: widget.config.pauseOnBackground,
       resumeUponEnteringForegroundMode: widget.config.resumeOnForeground,
       controls: widget.config.controlsBuilder,

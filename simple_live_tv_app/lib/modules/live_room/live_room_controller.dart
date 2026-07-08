@@ -318,13 +318,16 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void mediaError(String error) async {
     if (_isRetrying || _isOpening) return;
 
-    // 硬解失败：首次降级到 mediacodec-copy（仍硬解），再重试
+    // 硬解失败：完全重建播放器并降级到 mediacodec-copy
+    // 仅 stop()+open() 无法恢复 VO 子系统崩溃（"No render context set"）
     if (!forceCopyHwdec &&
         _hwdecErrorKeywords.any((k) => error.contains(k))) {
-      Log.d("检测到硬解失败，降级到 mediacodec-copy: $error");
+      Log.d("检测到硬解失败，重建播放器并降级到 mediacodec-copy: $error");
       forceCopyHwdec = true;
       _isRetrying = true;
       mediaErrorRetryCount = 0;
+      // 完全销毁重建底层播放器和渲染器，恢复 VO 子系统
+      await recreatePlayer();
       await setPlayer();
       _isRetrying = false;
       return;
@@ -349,6 +352,16 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       _isRetrying = true;
       changePlayLine(currentLineIndex + 1);
       _isRetrying = false;
+    }
+  }
+
+  @override
+  Future<void> onVoFatal() async {
+    // VO 崩溃后播放器已重建，重新开始播放
+    if (playUrls.isNotEmpty && currentLineIndex >= 0) {
+      Log.d("VO 崩溃恢复：重新播放");
+      mediaErrorRetryCount = 0;
+      await setPlayer();
     }
   }
 
