@@ -174,6 +174,23 @@ class SettingsPage extends GetView<SettingsController> {
         AppStyle.vGap24,
         Obx(
           () => SettingsItemWidget(
+            foucsNode: controller.playerEngineFocusNode,
+            autofocus: controller.playerEngineFocusNode.isFoucsed.value,
+            title: "播放器引擎",
+            items: const {
+              0: "mpv (功能全)",
+              1: "ExoPlayer (系统兼容好)",
+            },
+            value: AppSettingsController.instance.playerEngine.value.index,
+            onChanged: (e) {
+              AppSettingsController.instance
+                  .setPlayerEngine(PlayerEngine.values[e]);
+            },
+          ),
+        ),
+        AppStyle.vGap24,
+        Obx(
+          () => SettingsItemWidget(
             foucsNode: controller.liveBufferModeFocusNode,
             autofocus: controller.liveBufferModeFocusNode.isFoucsed.value,
             title: "直播缓冲策略",

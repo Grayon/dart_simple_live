@@ -12,6 +12,7 @@ import 'package:simple_live_tv_app/app/log.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'base_player.dart';
+import 'exoplayer_player.dart';
 import 'mediakit_player.dart';
 
 mixin PlayerMixin {
@@ -26,15 +27,23 @@ mixin PlayerMixin {
   }
 
   /// 播放器实例（通过抽象层访问）
-  late final MediaKitPlayer player = MediaKitPlayer(
-    PlayerConfig(
+  late final BasePlayer player = _createPlayer();
+
+  BasePlayer _createPlayer() {
+    final config = PlayerConfig(
       title: "Simple Live Player",
       logLevel: AppSettingsController.instance.logEnable.value
           ? PlayerLogLevel.info
           : PlayerLogLevel.error,
       bufferSizeBytes: _effectiveBufferSizeMb() * 1024 * 1024,
-    ),
-  );
+    );
+    switch (AppSettingsController.instance.playerEngine.value) {
+      case PlayerEngine.exoPlayer:
+        return ExoPlayerPlayer(config);
+      case PlayerEngine.mpv:
+        return MediaKitPlayer(config);
+    }
+  }
 
   bool _playerInitialized = false;
 
@@ -94,44 +103,51 @@ mixin PlayerMixin {
 
   /// 初始化播放器并设置性能相关参数
   Future<void> initializePlayer() async {
-    if (!_playerInitialized) {
+    final p = player;
+
+    if (p is MediaKitPlayer) {
+      if (!_playerInitialized) {
+        _playerInitialized = true;
+        p.initVideoController(_buildVideoRenderConfig());
+      }
+
+      if (forceCopyHwdec) {
+        await p.setProperty('hwdec', 'mediacodec-copy');
+      }
+
+      // 自定义音频输出驱动
+      if (AppSettingsController.instance.customPlayerOutput.value &&
+          AppSettingsController.instance.audioOutputDriver.value.isNotEmpty) {
+        await p.setProperty(
+          'ao',
+          AppSettingsController.instance.audioOutputDriver.value,
+        );
+      }
+
+      if (Platform.isAndroid) {
+        await p.setProperty('force-seekable', 'yes');
+      }
+
+      // 直播缓冲策略 preset（仅 mpv）
+      final preset =
+          AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
+      for (final entry in preset.entries) {
+        if (!Platform.isAndroid && entry.key == 'swapchain-depth') continue;
+        await p.setProperty(entry.key, entry.value);
+      }
+
+      if (Platform.isAndroid) {
+        await p.setProperty('vd-lavc-o', 'threads=0');
+        await p.setProperty('hdr-compute-peak', 'auto');
+        await p.setProperty('target-colorspace-hint', 'yes');
+        await p.setProperty('audio-channels', 'auto');
+      }
+
+      await p.setProperty('audio-stream-silence', 'yes');
+    } else if (p is ExoPlayerPlayer) {
       _playerInitialized = true;
-      player.initVideoController(_buildVideoRenderConfig());
+      // ExoPlayer 自动管理缓冲和解码器，无需手动配置
     }
-
-    if (forceCopyHwdec) {
-      await player.setProperty('hwdec', 'mediacodec-copy');
-    }
-
-    // 自定义音频输出驱动
-    if (AppSettingsController.instance.customPlayerOutput.value &&
-        AppSettingsController.instance.audioOutputDriver.value.isNotEmpty) {
-      await player.setProperty(
-        'ao',
-        AppSettingsController.instance.audioOutputDriver.value,
-      );
-    }
-
-    if (Platform.isAndroid) {
-      await player.setProperty('force-seekable', 'yes');
-    }
-
-    // 直播缓冲策略 preset
-    final preset =
-        AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
-    for (final entry in preset.entries) {
-      if (!Platform.isAndroid && entry.key == 'swapchain-depth') continue;
-      await player.setProperty(entry.key, entry.value);
-    }
-
-    if (Platform.isAndroid) {
-      await player.setProperty('vd-lavc-o', 'threads=0');
-      await player.setProperty('hdr-compute-peak', 'auto');
-      await player.setProperty('target-colorspace-hint', 'yes');
-      await player.setProperty('audio-channels', 'auto');
-    }
-
-    await player.setProperty('audio-stream-silence', 'yes');
   }
 }
 

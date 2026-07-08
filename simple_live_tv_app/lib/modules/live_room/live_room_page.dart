@@ -144,7 +144,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 AppSettingsController.instance.playerAutoPause.value,
             aspectRatio: aspectRatio,
             fit: boxFit,
-            controlsBuilder: (state) => playerControls(state, controller),
+            controlsBuilder: (ctx) => playerControls(ctx, controller),
           ),
         ),
         Obx(

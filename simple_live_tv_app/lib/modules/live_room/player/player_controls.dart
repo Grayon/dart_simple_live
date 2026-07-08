@@ -2,7 +2,6 @@ import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
@@ -17,15 +16,15 @@ import 'package:simple_live_tv_app/widgets/card/anchor_card.dart';
 import 'package:simple_live_tv_app/widgets/settings_item_widget.dart';
 import 'package:simple_live_tv_app/widgets/status/app_empty_widget.dart';
 
-Widget playerControls(VideoState videoState, LiveRoomController controller) {
-  return buildControls(videoState, controller);
+Widget playerControls(BuildContext context, LiveRoomController controller) {
+  return buildControls(context, controller);
 }
 
-Widget buildControls(VideoState videoState, LiveRoomController controller) {
+Widget buildControls(BuildContext context, LiveRoomController controller) {
   return Stack(
     children: [
       Container(),
-      buildDanmuView(videoState, controller),
+      buildDanmuView(context, controller),
       // 点击播放器打开设置
       Positioned.fill(
         child: GestureDetector(onTap: () => showPlayerSettings(controller)),
@@ -215,8 +214,8 @@ Widget buildControls(VideoState videoState, LiveRoomController controller) {
   );
 }
 
-Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
-  var padding = MediaQuery.of(videoState.context).padding;
+Widget buildDanmuView(BuildContext context, LiveRoomController controller) {
+  var padding = MediaQuery.of(context).padding;
   controller.danmakuView ??= DanmakuScreen(
     key: controller.globalDanmuKey,
     createdController: controller.initDanmakuController,

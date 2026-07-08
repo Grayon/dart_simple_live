@@ -52,6 +52,7 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
+  video_player: ^2.11.1 # ExoPlayer/Media3 替代引擎（Android TV）
 
 dependency_overrides:
   fading_edge_scrollview: ^4.1.1

@@ -147,6 +147,9 @@ class LocalStorageService extends GetxService {
   /// 禁用上下键切台
   static const String kDisableChannelSwitch = "DisableChannelSwitch";
 
+  /// 播放器引擎：0=mpv(media_kit) 1=ExoPlayer(Media3)
+  static const String kPlayerEngine = "PlayerEngine";
+
   late Box settingsBox;
   late Box<String> shieldBox;
 

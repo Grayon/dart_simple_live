@@ -84,6 +84,9 @@ abstract class BasePlayer {
   Stream<bool> get completedStream;
   Stream<PlayerLogEntry> get logStream;
 
+  /// 播放器重建通知（PlayerVideo 监听此流重建渲染器）
+  Stream<void> get recreateStream;
+
   /// 打开媒体源
   Future<void> open(String url, {Map<String, String>? headers});
 
