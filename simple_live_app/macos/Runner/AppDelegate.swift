@@ -11,7 +11,7 @@ class AppDelegate: FlutterAppDelegate {
     // 退出应用时清除窗口 frame 缓存，避免小窗模式下退出导致下次启动窗口很小
     if let window = NSApp.mainWindow {
       let name = window.frameAutosaveName
-      if !name.rawValue.isEmpty {
+      if !name.isEmpty {
         window.saveFrame(usingName: NSWindow.FrameAutosaveName(""))
       }
     }
