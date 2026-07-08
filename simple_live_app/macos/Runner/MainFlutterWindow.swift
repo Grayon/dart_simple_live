@@ -2,15 +2,12 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
-  // 彻底禁用窗口大小自动保存/恢复，避免跨显示器时系统按屏幕记忆自动调整窗口大小
-  override var frameAutosaveName: NSWindow.FrameAutosaveName {
-    get { NSWindow.FrameAutosaveName("") }
-    set { }
-  }
-
+  // 禁用窗口大小自动保存/恢复，避免跨显示器时系统按屏幕记忆自动调整窗口大小
   override func saveFrame(usingName name: NSWindow.FrameAutosaveName) { }
 
   override func setFrameUsingName(_ name: NSWindow.FrameAutosaveName) -> Bool { false }
+
+  @objc func setFrameAutosaveName(_ name: NSWindow.FrameAutosaveName) { }
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
