@@ -6,6 +6,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_tv_app/app/log.dart';
 import 'package:simple_live_tv_app/app/sites.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
@@ -459,6 +460,15 @@ void showPlayerSettings(LiveRoomController controller) {
                   },
                 ),
               ),
+              AppStyle.vGap24,
+              HighlightListTile(
+                focusNode: AppFocusNode(),
+                title: "视频信息",
+                subtitle: "查看当前视频编码、分辨率、码率等详细信息",
+                onTap: () {
+                  showVideoInfo(controller);
+                },
+              ),
               Divider(color: Colors.grey.withAlpha(50), height: 36.w),
               Padding(
                 padding: AppStyle.edgeInsetsH20,
@@ -590,6 +600,142 @@ void showPlayerSettings(LiveRoomController controller) {
     ),
   ).then((value) {
     // 还原焦点
+    controller.focusNode.requestFocus();
+  });
+}
+
+void showVideoInfo(LiveRoomController controller) {
+  final pp = controller.player.platform as dynamic;
+
+  // 需要读取的 mpv 属性
+  final props = [
+    ('video-format', '视频编码'),
+    ('video-codec', '解码器'),
+    ('width', '宽度'),
+    ('height', '高度'),
+    ('container-fps', '帧率'),
+    ('video-bitrate', '视频码率'),
+    ('audio-bitrate', '音频码率'),
+    ('audio-format', '音频编码'),
+    ('audio-samplerate', '采样率'),
+    ('audio-channels', '声道'),
+    ('hwdec', '硬解'),
+    ('vo', '视频输出'),
+    ('ao', '音频输出'),
+    ('cache-used', '已用缓存(KB)'),
+    ('demuxer-cache-duration', '缓存时长(s)'),
+    ('estimated-vf-fps', '渲染帧率'),
+    ('avsync', '音视频同步'),
+    ('drop-frame-count', '丢帧数'),
+    ('vo-drop-frame-count', 'VO丢帧数'),
+    ('mistimed-frame-count', '错帧数'),
+    ('media-title', '媒体标题'),
+    ('path', '播放地址'),
+  ];
+
+  Utils.showSystemRightDialog(
+    width: 900.w,
+    child: Column(
+      children: [
+        AppStyle.vGap24,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            AppStyle.hGap48,
+            HighlightButton(
+              focusNode: AppFocusNode(),
+              iconData: Icons.arrow_back,
+              text: "返回",
+              autofocus: true,
+              onTap: () {
+                Get.back();
+              },
+            ),
+            AppStyle.hGap32,
+            Text(
+              "视频信息",
+              style: AppStyle.titleStyleWhite.copyWith(
+                fontSize: 36.w,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+          ],
+        ),
+        Expanded(
+          child: FutureBuilder<List<(String, String)>>(
+            future: () async {
+              var results = <(String, String)>[];
+              for (var (key, label) in props) {
+                try {
+                  var val = await pp.getProperty(key);
+                  if (val != null && val.toString().isNotEmpty) {
+                    results.add((label, val.toString()));
+                  }
+                } catch (_) {}
+              }
+              // 同时写入日志
+              if (results.isNotEmpty) {
+                var info = results.map((e) => '${e.$1}: ${e.$2}').join('
+');
+                Log.d('视频信息:
+$info');
+              }
+              return results;
+            }(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator(color: Colors.white));
+              }
+              var items = snapshot.data!;
+              if (items.isEmpty) {
+                return Center(
+                  child: Text(
+                    "暂无视频信息，请先开始播放",
+                    style: AppStyle.textStyleWhite.copyWith(color: Colors.white54),
+                  ),
+                );
+              }
+              return ListView.separated(
+                padding: AppStyle.edgeInsetsA48,
+                itemCount: items.length,
+                separatorBuilder: (_, __) => Divider(color: Colors.grey.withAlpha(30), height: 2),
+                itemBuilder: (_, i) {
+                  var (label, value) = items[i];
+                  return Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.w),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 200.w,
+                          child: Text(
+                            label,
+                            style: AppStyle.textStyleWhite.copyWith(
+                              color: Colors.white70,
+                              fontSize: 26.w,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            value,
+                            style: AppStyle.textStyleWhite.copyWith(fontSize: 26.w),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  ).then((value) {
     controller.focusNode.requestFocus();
   });
 }

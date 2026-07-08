@@ -698,6 +698,24 @@ class SettingsPage extends GetView<SettingsController> {
             },
           ),
         ),
+        AppStyle.vGap24,
+        Obx(
+          () => HighlightListTile(
+            focusNode: AppFocusNode(),
+            title: "清除日志",
+            subtitle: AppSettingsController.instance.logEnable.value
+                ? "删除所有已保存的日志文件"
+                : "日志记录未开启",
+            onTap: () async {
+              if (!AppSettingsController.instance.logEnable.value) {
+                SmartDialog.showToast("日志记录未开启");
+                return;
+              }
+              var count = await LogFileWriter.clearAllLogs();
+              SmartDialog.showToast("已清除 $count 个日志文件");
+            },
+          ),
+        ),
       ],
     );
   }

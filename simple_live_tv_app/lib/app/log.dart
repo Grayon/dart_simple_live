@@ -180,6 +180,29 @@ class LogFileWriter {
       return [];
     }
   }
+
+  /// 删除所有日志文件（保留当前正在写入的）
+  static Future<int> clearAllLogs() async {
+    try {
+      var supportDir = await getApplicationSupportDirectory();
+      var logDir = Directory("${supportDir.path}/log");
+      if (!await logDir.exists()) return 0;
+      var currentName = Log.logFileWriter?.fileName;
+      var count = 0;
+      await for (var entity in logDir.list()) {
+        if (entity is File && entity.path.endsWith('.log')) {
+          if (currentName != null && entity.uri.pathSegments.last == currentName) {
+            continue;
+          }
+          await entity.delete();
+          count++;
+        }
+      }
+      return count;
+    } catch (e) {
+      return 0;
+    }
+  }
 }
 
 class LogFileModel {
