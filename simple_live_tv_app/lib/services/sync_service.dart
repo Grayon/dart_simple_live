@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -34,7 +33,6 @@ class SyncService extends GetxService {
   var ipAddress = "".obs;
   var httpRunning = false.obs;
   var httpErrorMsg = "".obs;
-  Timer? _ipRefreshTimer;
 
   var deviceId = "";
   @override
@@ -97,35 +95,14 @@ class SyncService extends GetxService {
   }
 
   /// 读取本地IP
-  /// - 方案1: TCP connect 到外部地址，让 OS 选择出口网卡，读取本地地址（最可靠）
-  /// - 方案2: 枚举 NetworkInterface，按 Ethernet > WiFi > 其他优先级取
-  /// - 方案3: network_info_plus getWifiIP() 兜底（仅 WiFi 有效）
+  /// - 方案1: 枚举 NetworkInterface，按 Ethernet > WiFi > 其他优先级取
+  /// - 方案2: network_info_plus getWifiIP() 兜底（仅 WiFi 有效）
   /// - 只返回单个 IP，避免多接口时拼接产生无效 URL
   Future<String> getLocalIP() async {
-    // 方案1: 通过 TCP connect 发现出口 IP
-    // OS 路由决定走哪张网卡，socket.address 即为该网卡的本地地址
-    try {
-      var socket = await Socket.connect(
-        '8.8.8.8',
-        53,
-        timeout: const Duration(seconds: 3),
-      );
-      var localIp = socket.address.address;
-      socket.destroy();
-      if (localIp.isNotEmpty &&
-          !localIp.startsWith('127') &&
-          localIp != '0.0.0.0') {
-        Log.d('getLocalIP via TCP connect: $localIp');
-        return localIp;
-      }
-    } catch (e) {
-      Log.d('getLocalIP via TCP connect failed: $e');
-    }
-
-    // 方案2: 枚举网络接口
+    // 方案1: 枚举网络接口
     var interfaces = await NetworkInterface.list(
       type: InternetAddressType.IPv4,
-      includeLinkLocal: true,
+      includeLinkLocal: false,
     );
     String? ethernetIp;
     String? wifiIp;
@@ -135,22 +112,20 @@ class SyncService extends GetxService {
       for (var addr in interface.addresses) {
         if (addr.isLoopback ||
             addr.isMulticast ||
-            addr.isLinkLocal ||
             addr.address.startsWith('127')) {
           continue;
         }
         firstIp ??= addr.address;
         var name = interface.name.toLowerCase();
-        if (name.startsWith('eth') ||
-            (!name.startsWith('wlan') && name.contains('ethernet'))) {
+        if (name.startsWith('eth') || name.contains('ethernet')) {
           ethernetIp ??= addr.address;
-        } else if (name.startsWith('wlan')) {
+        } else if (name.startsWith('wlan') || name.contains('wifi')) {
           wifiIp ??= addr.address;
         }
       }
     }
 
-    // 方案3: network_info_plus 获取 WiFi IP（仅 WiFi 连接时有效）
+    // 方案2: network_info_plus 获取 WiFi IP（仅 WiFi 连接时有效）
     if (wifiIp == null && ethernetIp == null) {
       try {
         var wifiIp2 = await networkInfo.getWifiIP();
@@ -162,7 +137,7 @@ class SyncService extends GetxService {
     }
 
     var result = ethernetIp ?? wifiIp ?? firstIp ?? '';
-    Log.d('getLocalIP result: $result (found ${interfaces.length} interfaces)');
+    Log.d('getLocalIP: $result (${interfaces.length} interfaces)');
     return result;
   }
 
@@ -213,25 +188,6 @@ class SyncService extends GetxService {
 
       var ip = await getLocalIP();
       ipAddress.value = ip;
-
-      // IP 刷新：为空时每 5s 重试，获取到后每 30s 刷新应对网络切换
-      _ipRefreshTimer?.cancel();
-      _ipRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-        var newIp = await getLocalIP();
-        if (newIp.isNotEmpty && newIp != ipAddress.value) {
-          ipAddress.value = newIp;
-          Log.d('IP changed to $newIp');
-          // 获取到 IP 后降频到 30s
-          _ipRefreshTimer?.cancel();
-          _ipRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
-            var newIp2 = await getLocalIP();
-            if (newIp2.isNotEmpty && newIp2 != ipAddress.value) {
-              ipAddress.value = newIp2;
-              Log.d('IP changed to $newIp2');
-            }
-          });
-        }
-      });
 
       Log.d('Serving at http://$ip:${server.port}');
     } catch (e) {
@@ -441,9 +397,18 @@ class SyncService extends GetxService {
   @override
   void onClose() {
     Log.d('SyncService close');
-    _ipRefreshTimer?.cancel();
     udp?.close();
     server?.close(force: true);
     super.onClose();
+  }
+
+  /// 刷新本机 IP（App 进入前台时调用）
+  Future<void> refreshIP() async {
+    if (!httpRunning.value) return;
+    var ip = await getLocalIP();
+    if (ip.isNotEmpty && ip != ipAddress.value) {
+      ipAddress.value = ip;
+      Log.d('IP refreshed to $ip');
+    }
   }
 }

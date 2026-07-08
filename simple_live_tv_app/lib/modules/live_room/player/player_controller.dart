@@ -70,7 +70,7 @@ mixin PlayerMixin {
     // Android：解码器优化，防止高帧率直播源（60fps 游戏直播等）喂爆 MediaCodec
     if (Platform.isAndroid) {
       // vd-lavc 线程自动探测（CPU 核数）+ 快速模式（跳过部分参考帧检查）
-      await pp.setProperty('vd-lavc-o', 'threads=0;fast=1;drdd=1;');
+      await pp.setProperty('vd-lavc-o', 'threads=0:fast=1:drdd=1');
       // MediaCodec 用 gralloc allocator，零拷贝直送 Surface（部分盒子不支持时 mpv 会自动 fallback）
       await pp.setProperty('mediacodec-allocator', 'gralloc');
       // 解码器输出队列上限，防止高帧率源堆积帧阻塞 SurfaceFlinger
