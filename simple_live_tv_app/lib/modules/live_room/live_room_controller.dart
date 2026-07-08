@@ -4,7 +4,6 @@ import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_tv_app/app/constant.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
@@ -268,10 +267,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       // 避免并发 open 导致 native 层资源泄漏卡死整个系统
       await player.stop();
       await player.open(
-        Media(
-          playUrls[currentLineIndex],
-          httpHeaders: playHeaders,
-        ),
+        playUrls[currentLineIndex],
+        headers: playHeaders,
       );
       Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
     } catch (e) {

@@ -33,8 +33,8 @@ Widget buildControls(VideoState videoState, LiveRoomController controller) {
       Center(
         child: // 中间
             StreamBuilder(
-          stream: videoState.widget.controller.player.stream.buffering,
-          initialData: videoState.widget.controller.player.state.buffering,
+          stream: controller.player.bufferingStream,
+          initialData: controller.player.state.buffering,
           builder: (_, s) => Visibility(
             visible: s.data ?? false,
             child: SizedBox(
@@ -606,8 +606,6 @@ void showPlayerSettings(LiveRoomController controller) {
 }
 
 void showVideoInfo(LiveRoomController controller) {
-  final pp = controller.player.platform as dynamic;
-
   // 需要读取的 mpv 属性
   final props = [
     ('video-format', '视频编码'),
@@ -669,7 +667,7 @@ void showVideoInfo(LiveRoomController controller) {
               var results = <(String, String)>[];
               for (var (key, label) in props) {
                 try {
-                  var val = await pp.getProperty(key);
+                  var val = await controller.player.getProperty(key);
                   if (val != null && val.toString().isNotEmpty) {
                     results.add((label, val.toString()));
                   }
