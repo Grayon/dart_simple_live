@@ -393,8 +393,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       fullScreenState.value = false;
       smallWindowState.value = false;
       windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      // 先解除宽高比锁定，否则 setSize 恢复正常尺寸时会被约束
-      await windowManager.setAspectRatio(-1);
       await windowManager.setSize(_lastWindowSize!);
       await windowManager.setPosition(_lastWindowPosition!);
       windowManager.setAlwaysOnTop(false);
