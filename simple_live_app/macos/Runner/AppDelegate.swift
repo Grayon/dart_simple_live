@@ -8,15 +8,12 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   override func applicationWillTerminate(_ notification: Notification) {
-    // 退出应用时清除窗口 frame 缓存，避免小窗模式下退出导致下次启动窗口很小
-    if let window = NSApp.mainWindow {
-      let name = window.frameAutosaveName
-      if !name.isEmpty {
-        window.saveFrame(usingName: NSWindow.FrameAutosaveName(""))
+    // 禁用窗口恢复后，清除可能残留的 frame 缓存。
+    let defaults = UserDefaults.standard
+    for key in defaults.dictionaryRepresentation().keys {
+      if key.hasPrefix("NSWindow Frame ") {
+        defaults.removeObject(forKey: key)
       }
     }
-    // 清除 UserDefaults 中保存的窗口 frame
-    UserDefaults.standard.removeObject(forKey: "NSWindow Frame MainFlutterWindow")
-    UserDefaults.standard.removeObject(forKey: "NSWindow Frame QvC-M9-y7g")
   }
 }

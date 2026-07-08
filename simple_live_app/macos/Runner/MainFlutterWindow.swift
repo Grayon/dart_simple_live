@@ -2,16 +2,12 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
-  override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-    super.setFrame(frameRect, display: flag)
-    // 程序调用 setSize 时也保存 frame，与手动拖拽行为一致。
-    // 否则跨显示器时系统会用旧的 frame 缓存，导致窗口大小跳变。
-    if !frameAutosaveName.isEmpty {
-      saveFrame(usingName: frameAutosaveName)
-    }
-  }
-
   override func awakeFromNib() {
+    // 禁用系统窗口自动恢复，避免 macOS 按显示器缓存窗口大小，
+    // 导致小窗模式跨屏时窗口大小跳变。
+    isRestorable = false
+    frameAutosaveName = ""
+
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
