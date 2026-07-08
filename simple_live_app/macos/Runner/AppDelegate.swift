@@ -1,14 +1,17 @@
 import Cocoa
 import FlutterMacOS
 
-@NSApplicationMain
+@main
 class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
   }
 
+  override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+    return true
+  }
+
   override func applicationWillTerminate(_ notification: Notification) {
-    // 禁用窗口恢复后，清除可能残留的 frame 缓存。
     let defaults = UserDefaults.standard
     for key in defaults.dictionaryRepresentation().keys {
       if key.hasPrefix("NSWindow Frame ") {
