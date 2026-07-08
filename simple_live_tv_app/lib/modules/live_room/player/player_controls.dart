@@ -12,6 +12,7 @@ import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_button.dart';
+import 'package:simple_live_tv_app/widgets/button/highlight_list_tile.dart';
 import 'package:simple_live_tv_app/widgets/card/anchor_card.dart';
 import 'package:simple_live_tv_app/widgets/settings_item_widget.dart';
 import 'package:simple_live_tv_app/widgets/status/app_empty_widget.dart';
@@ -676,10 +677,8 @@ void showVideoInfo(LiveRoomController controller) {
               }
               // 同时写入日志
               if (results.isNotEmpty) {
-                var info = results.map((e) => '${e.$1}: ${e.$2}').join('
-');
-                Log.d('视频信息:
-$info');
+                var info = results.map((e) => '${e.$1}: ${e.$2}').join('\n');
+                Log.d('视频信息:\n$info');
               }
               return results;
             }(),
