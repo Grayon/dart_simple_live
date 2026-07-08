@@ -38,12 +38,23 @@ mixin PlayerMixin {
 
   bool _playerInitialized = false;
 
+  /// 硬解零拷贝失败后，降级到 mediacodec-copy（仍硬解，多一次帧拷贝，更稳定）
+  bool forceCopyHwdec = false;
+
+  void resetHwdecFallback() {
+    forceCopyHwdec = false;
+  }
+
   /// 初始化播放器并设置性能相关参数（Android 直播高码率/电视盒子场景优化）
   Future<void> initializePlayer() async {
+    var pp = player.platform as NativePlayer;
+
+    if (forceCopyHwdec) {
+      await pp.setProperty('hwdec', 'mediacodec-copy');
+    }
+
     if (_playerInitialized) return;
     _playerInitialized = true;
-
-    var pp = player.platform as NativePlayer;
 
     // 自定义音频输出驱动
     if (AppSettingsController.instance.customPlayerOutput.value &&
@@ -85,7 +96,7 @@ mixin PlayerMixin {
   /// 视频控制器
   /// - 高帧率兼容模式：强制软解（hwdec=no），防止60fps等直播源喂爆MediaCodec卡死系统
   /// - 自定义输出驱动模式：用户自选 vo/hwdec
-  /// - 兼容模式：Android 强制 mediacodec_embed/mediacodec，其他平台 null
+  /// - 强制硬解模式：Android 强制 mediacodec_embed/mediacodec，忽略用户硬件解码开关
   /// - 正常模式：Android 用 mediacodec_embed，hwdec 跟随硬件解码开关；其他平台不指定
   late final videoController = VideoController(
     player,
@@ -94,7 +105,7 @@ mixin PlayerMixin {
             enableHardwareAcceleration: false,
             vo: Platform.isAndroid ? 'mediacodec_embed' : null,
             hwdec: Platform.isAndroid ? 'no' : null,
-            androidAttachSurfaceAfterVideoParameters: false,
+            androidAttachSurfaceAfterVideoParameters: true,
           )
         : AppSettingsController.instance.customPlayerOutput.value
             ? VideoControllerConfiguration(
@@ -108,13 +119,13 @@ mixin PlayerMixin {
                         ? AppSettingsController
                             .instance.videoHardwareDecoder.value
                         : null,
-                androidAttachSurfaceAfterVideoParameters: false,
+                androidAttachSurfaceAfterVideoParameters: true,
               )
             : AppSettingsController.instance.playerCompatMode.value
                 ? VideoControllerConfiguration(
                     vo: Platform.isAndroid ? 'mediacodec_embed' : null,
                     hwdec: Platform.isAndroid ? 'mediacodec' : null,
-                    androidAttachSurfaceAfterVideoParameters: false,
+                    androidAttachSurfaceAfterVideoParameters: true,
                   )
                 : VideoControllerConfiguration(
                     enableHardwareAcceleration:
@@ -125,7 +136,7 @@ mixin PlayerMixin {
                             ? 'mediacodec'
                             : 'no')
                         : null,
-                    androidAttachSurfaceAfterVideoParameters: false,
+                    androidAttachSurfaceAfterVideoParameters: true,
                   ),
   );
 }

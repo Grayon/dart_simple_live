@@ -30,7 +30,7 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '0.5',
           'audio-buffer': '0.05',
-          'framedrop': 'decoder+vo',
+          'framedrop': 'vo',
           'swapchain-depth': '1',
           'cache-default': '2097152',
           'cache-backbuffer': '524288',
@@ -41,10 +41,10 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '2',
           'audio-buffer': '0.2',
-          'framedrop': 'decoder+vo',
+          'framedrop': 'vo',
           'swapchain-depth': '2',
-          'cache-default': '8388608',
-          'cache-backbuffer': '2097152',
+          'cache-default': '16777216',
+          'cache-backbuffer': '4194304',
           'network-timeout': '15',
           'video-sync': 'audio',
         };
@@ -52,7 +52,7 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '8',
           'audio-buffer': '0.4',
-          'framedrop': 'decoder+vo',
+          'framedrop': 'vo',
           'swapchain-depth': '3',
           'cache-default': '33554432',
           'cache-backbuffer': '8388608',

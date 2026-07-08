@@ -158,7 +158,7 @@ class SettingsPage extends GetView<SettingsController> {
           () => SettingsItemWidget(
             foucsNode: controller.compatibleModeFocusNode,
             autofocus: controller.compatibleModeFocusNode.isFoucsed.value,
-            title: "兼容模式",
+            title: "强制硬件解码",
             items: const {
               0: "关",
               1: "开",

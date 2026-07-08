@@ -241,6 +241,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     currentLineInfo.value = "线路${currentLineIndex + 1}";
     //重置错误次数
     mediaErrorRetryCount = 0;
+    resetHwdecFallback();
     setPlayer();
   }
 
@@ -249,6 +250,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     currentLineIndex = index;
     //重置错误次数
     mediaErrorRetryCount = 0;
+    resetHwdecFallback();
     setPlayer();
   }
 
@@ -305,9 +307,32 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   int mediaErrorRetryCount = 0;
+
+  /// 硬解失败的错误关键词
+  static const _hwdecErrorKeywords = [
+    'Could not open codec',
+    'surface and native_window are NULL',
+    'Error while decoding frame',
+    'No render context set',
+    'Failed to flush codec',
+  ];
+
   @override
   void mediaError(String error) async {
     if (_isRetrying || _isOpening) return;
+
+    // 硬解失败：首次降级到 mediacodec-copy（仍硬解），再重试
+    if (!forceCopyHwdec &&
+        _hwdecErrorKeywords.any((k) => error.contains(k))) {
+      Log.d("检测到硬解失败，降级到 mediacodec-copy: $error");
+      forceCopyHwdec = true;
+      _isRetrying = true;
+      mediaErrorRetryCount = 0;
+      await setPlayer();
+      _isRetrying = false;
+      return;
+    }
+
     if (mediaErrorRetryCount < 2) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
       _isRetrying = true;
@@ -412,6 +437,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     // 停止播放
     mediaErrorRetryCount = 0;
+    resetHwdecFallback();
     await player.stop();
 
     // 刷新信息
