@@ -6,7 +6,7 @@ class MainFlutterWindow: NSWindow {
     // 禁用系统窗口自动恢复，避免 macOS 按显示器缓存窗口大小，
     // 导致小窗模式跨屏时窗口大小跳变。
     isRestorable = false
-    frameAutosaveName = ""
+    setFrameAutosaveName("")
 
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
