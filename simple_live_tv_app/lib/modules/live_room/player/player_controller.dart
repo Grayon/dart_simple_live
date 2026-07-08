@@ -67,16 +67,11 @@ mixin PlayerMixin {
       await pp.setProperty(entry.key, entry.value);
     }
 
-    // Android：解码器优化，防止高帧率直播源（60fps 游戏直播等）喂爆 MediaCodec
+    // Android：解码器优化
     if (Platform.isAndroid) {
-      // vd-lavc 线程自动探测（CPU 核数）+ 快速模式（跳过部分参考帧检查）
-      await pp.setProperty('vd-lavc-o', 'threads=0:fast=1:drdd=1');
-      // MediaCodec 用 gralloc allocator，零拷贝直送 Surface（部分盒子不支持时 mpv 会自动 fallback）
-      await pp.setProperty('mediacodec-allocator', 'gralloc');
-      // 解码器输出队列上限，防止高帧率源堆积帧阻塞 SurfaceFlinger
-      await pp.setProperty('vd-queue-max-bytes', '67108864'); // 64MB
-      await pp.setProperty('vd-queue-max-samples', '4');
-      // HDR：自动检测峰值亮度，传递色彩空间给 Surface（Android TV 普遍支持 HDR10/HLG）
+      // 软解线程自动探测（硬解时不生效，安全保留）
+      await pp.setProperty('vd-lavc-o', 'threads=0');
+      // HDR：自动检测峰值亮度，传递色彩空间给 Surface（不支持时自动 fallback）
       await pp.setProperty('hdr-compute-peak', 'auto');
       await pp.setProperty('target-colorspace-hint', 'yes');
       // 音频声道自动检测（接功放/回音壁时正确输出多声道）
