@@ -368,7 +368,7 @@ class PlayerController extends BaseController
       if (event.level == PlayerLogLevel.fatal &&
           (event.text.contains('No render context set') ||
               event.text.contains('Error opening/initializing the selected video_out'))) {
-        Log.e("检测到 VO 崩溃: ${event.text}");
+        Log.e("检测到 VO 崩溃: ${event.text}", StackTrace.current);
         _handleVoFatal();
       }
     });
@@ -388,12 +388,6 @@ class PlayerController extends BaseController
   void rebindStreams() {
     disposeStream();
     initStream();
-  }
-    _heightSubscription = player.heightStream.listen((event) {
-      final s = player.state;
-      Log.w('height:$event  W:${s.width}  H:${s.height}');
-      height.value = event ?? 0;
-    });
   }
 
   void disposeStream() {

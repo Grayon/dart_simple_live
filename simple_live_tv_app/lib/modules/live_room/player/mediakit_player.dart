@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:media_kit/media_kit.dart';
+import 'package:media_kit/media_kit.dart' hide PlayerState;
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'base_player.dart';
@@ -210,10 +210,12 @@ class MediaKitPlayer implements BasePlayer {
     _currentRenderConfig = config;
   }
 
-  MPVLogLevel _toMpvLogLevel(PlayerLogLevel level) {
+  static MPVLogLevel _toMpvLogLevel(PlayerLogLevel level) {
     switch (level) {
       case PlayerLogLevel.none:
         return MPVLogLevel.error;
+      case PlayerLogLevel.fatal:
+        return MPVLogLevel.fatal;
       case PlayerLogLevel.error:
         return MPVLogLevel.error;
       case PlayerLogLevel.warn:
