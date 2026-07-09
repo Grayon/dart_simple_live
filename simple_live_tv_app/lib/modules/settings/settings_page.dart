@@ -320,22 +320,6 @@ class SettingsPage extends GetView<SettingsController> {
           AppStyle.vGap24,
           Obx(
             () => SettingsItemWidget(
-              foucsNode: controller.highFpsCompatFocusNode,
-              autofocus: controller.highFpsCompatFocusNode.isFoucsed.value,
-              title: "高帧率兼容模式",
-              items: const {
-                0: "关",
-                1: "开",
-              },
-              value: AppSettingsController.instance.highFpsCompat.value ? 1 : 0,
-              onChanged: (e) {
-                AppSettingsController.instance.setHighFpsCompat(e == 1);
-              },
-            ),
-          ),
-          AppStyle.vGap24,
-          Obx(
-            () => SettingsItemWidget(
               foucsNode: controller.customPlayerOutputFocusNode,
               autofocus:
                   controller.customPlayerOutputFocusNode.isFoucsed.value,
@@ -405,9 +389,7 @@ class SettingsPage extends GetView<SettingsController> {
                     title: "硬件解码器 (--hwdec)",
                     items: const {
                       "mediacodec": "mediacodec",
-                      "mediacodec-copy": "mediacodec-copy",
                       "auto": "auto",
-                      "auto-copy": "auto-copy",
                       "no": "no",
                     },
                     value: AppSettingsController

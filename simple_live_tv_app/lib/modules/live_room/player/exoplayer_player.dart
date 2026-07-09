@@ -69,17 +69,9 @@ class ExoPlayerPlayer implements BasePlayer {
 
     await _controller?.dispose();
 
-    // FLV 直播流需要 formatHint 帮助 ExoPlayer 正确选择解复用器
-    String? formatHint;
-    final lowerUrl = url.toLowerCase();
-    if (lowerUrl.contains('.flv')) {
-      formatHint = 'flv';
-    }
-
     _controller = vp.VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: headers ?? {},
-      formatHint: formatHint,
       videoPlayerOptions: vp.VideoPlayerOptions(mixWithOthers: true),
     );
 
@@ -120,7 +112,6 @@ class ExoPlayerPlayer implements BasePlayer {
     final c = _controller;
     if (c == null) return;
     await c.pause();
-    await c.seekTo(Duration.zero);
     _playingController.add(false);
   }
 

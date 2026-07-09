@@ -76,29 +76,21 @@ mixin PlayerMixin {
         break;
     }
     _playerInitialized = false;
-    forceCopyHwdec = false;
+    hwdecRetried = false;
     await oldPlayer.dispose();
   }
 
   bool _playerInitialized = false;
 
-  /// 硬解零拷贝失败后，降级到 mediacodec-copy（仍硬解，多一次帧拷贝，更稳定）
-  bool forceCopyHwdec = false;
+  /// 硬解零拷贝失败后的重试标记（recreate 后重试 mediacodec，不再降级到 copy）
+  bool hwdecRetried = false;
 
   void resetHwdecFallback() {
-    forceCopyHwdec = false;
+    hwdecRetried = false;
   }
 
   VideoRenderConfig _buildVideoRenderConfig() {
     final c = AppSettingsController.instance;
-    if (c.highFpsCompat.value) {
-      return VideoRenderConfig(
-        enableHardwareAcceleration: false,
-        vo: Platform.isAndroid ? 'mediacodec_embed' : null,
-        hwdec: Platform.isAndroid ? 'no' : null,
-        androidAttachSurfaceAfterVideoParameters: true,
-      );
-    }
     if (c.customPlayerOutput.value) {
       return VideoRenderConfig(
         vo: c.videoOutputDriver.value.isNotEmpty
@@ -111,17 +103,16 @@ mixin PlayerMixin {
       );
     }
     if (c.playerCompatMode.value) {
+      // 兼容模式：仍用 mediacodec 零拷贝（mediacodec-copy 在多数电视上 hwupload 失败）
       return VideoRenderConfig(
         vo: Platform.isAndroid ? 'mediacodec_embed' : null,
-        hwdec: Platform.isAndroid ? 'mediacodec-copy' : null,
+        hwdec: Platform.isAndroid ? 'mediacodec' : null,
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
-    // Android TV 默认使用 mediacodec-copy（仍硬解，多一次帧拷贝但更稳定）
-    // 零拷贝模式在部分电视芯片上播放高码率流时 Surface 初始化时序不对
-    final hwdec = forceCopyHwdec
-        ? 'mediacodec-copy'
-        : (c.hardwareDecode.value ? 'mediacodec-copy' : 'no');
+    // Android TV 默认使用 mediacodec 零拷贝（帧全程在 GPU Surface，不需要 hwupload）
+    // mediacodec-copy 在多数电视芯片上会因 hwupload 不支持而黑屏
+    final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? 'mediacodec_embed' : null,
@@ -144,10 +135,6 @@ mixin PlayerMixin {
       if (!_playerInitialized) {
         _playerInitialized = true;
         p.initVideoController(_buildVideoRenderConfig());
-      }
-
-      if (forceCopyHwdec) {
-        await p.setProperty('hwdec', 'mediacodec-copy');
       }
 
       // 自定义音频输出驱动
@@ -410,7 +397,7 @@ class PlayerController extends BaseController
   void _handleVoFatal() async {
     if (_voFatalHandled) return;
     _voFatalHandled = true;
-    forceCopyHwdec = true;
+    hwdecRetried = true;
     await recreatePlayer();
     await onVoFatal();
     _voFatalHandled = false;

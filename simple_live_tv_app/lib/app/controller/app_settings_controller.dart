@@ -210,9 +210,6 @@ class AppSettingsController extends GetxController {
       'mediacodec',
     );
 
-    highFpsCompat.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kHighFpsCompat, false);
-
     disableChannelSwitch.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDisableChannelSwitch, false);
 
@@ -504,12 +501,6 @@ class AppSettingsController extends GetxController {
     videoHardwareDecoder.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kVideoHardwareDecoder, e);
-  }
-
-  var highFpsCompat = false.obs;
-  void setHighFpsCompat(bool e) {
-    highFpsCompat.value = e;
-    LocalStorageService.instance.setValue(LocalStorageService.kHighFpsCompat, e);
   }
 
   var disableChannelSwitch = false.obs;

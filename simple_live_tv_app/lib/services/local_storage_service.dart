@@ -141,9 +141,6 @@ class LocalStorageService extends GetxService {
   /// 音频输出驱动
   static const String kAudioOutputDriver = "AudioOutputDriver";
 
-  /// 高帧率兼容模式（强制软解，防止60fps等直播源喂爆MediaCodec卡死系统）
-  static const String kHighFpsCompat = "HighFpsCompat";
-
   /// 禁用上下键切台
   static const String kDisableChannelSwitch = "DisableChannelSwitch";
 

@@ -318,16 +318,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void mediaError(String error) async {
     if (_isRetrying || _isOpening) return;
 
-    // 硬解失败：完全重建播放器并降级到 mediacodec-copy
+    // 硬解失败：完全重建播放器并重试 mediacodec（不降级到 copy，多数电视 hwupload 不支持）
     // 仅 stop()+open() 无法恢复 VO 子系统崩溃（"No render context set"）
-    if (!forceCopyHwdec &&
+    if (!hwdecRetried &&
         _hwdecErrorKeywords.any((k) => error.contains(k))) {
-      Log.d("检测到硬解失败，重建播放器并降级到 mediacodec-copy: $error");
-      forceCopyHwdec = true;
+      Log.d("检测到硬解失败，重建播放器重试 mediacodec: $error");
+      hwdecRetried = true;
       _isRetrying = true;
       mediaErrorRetryCount = 0;
       // 完全销毁重建底层播放器和渲染器，恢复 VO 子系统
       await recreatePlayer();
+      // 给 Surface 初始化留时间，避免 "Both surface and native_window are NULL"
+      await Future.delayed(const Duration(milliseconds: 300));
       await setPlayer();
       _isRetrying = false;
       return;
@@ -361,6 +363,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     if (playUrls.isNotEmpty && currentLineIndex >= 0) {
       Log.d("VO 崩溃恢复：重新播放");
       mediaErrorRetryCount = 0;
+      // 给 Surface 初始化留时间
+      await Future.delayed(const Duration(milliseconds: 300));
       await setPlayer();
     }
   }

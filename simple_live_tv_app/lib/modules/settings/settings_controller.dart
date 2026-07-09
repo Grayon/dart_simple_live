@@ -43,7 +43,6 @@ class SettingsController extends BaseController
   var scaleFoucsNode = AppFocusNode();
   var defaultQualityFocusNode = AppFocusNode();
   var autoPauseFocusNode = AppFocusNode();
-  var highFpsCompatFocusNode = AppFocusNode();
   var disableChannelSwitchFocusNode = AppFocusNode();
   var logEnableFocusNode = AppFocusNode();
   var customPlayerOutputFocusNode = AppFocusNode();
