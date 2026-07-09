@@ -233,8 +233,8 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       .setLiveConfiguration(liveConfig)
       .build()
 
-    p.setMediaSourceFactory(mediaSourceFactory)
-    p.setMediaItem(mediaItem)
+    val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+    p.setMediaSource(mediaSource)
     p.prepare()
     p.playWhenReady = true
   }
