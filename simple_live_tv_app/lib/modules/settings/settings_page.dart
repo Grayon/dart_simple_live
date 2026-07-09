@@ -185,6 +185,7 @@ class SettingsPage extends GetView<SettingsController> {
             onChanged: (e) {
               AppSettingsController.instance
                   .setPlayerEngine(PlayerEngine.values[e]);
+              SmartDialog.showToast("重启app后生效");
             },
           ),
         ),

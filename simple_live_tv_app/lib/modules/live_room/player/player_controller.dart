@@ -27,15 +27,16 @@ mixin PlayerMixin {
   }
 
   /// 播放器实例（通过抽象层访问）
-  late final BasePlayer player = _createPlayer();
+  BasePlayer _player = _createPlayerStatic();
+  BasePlayer get player => _player;
 
-  BasePlayer _createPlayer() {
+  static BasePlayer _createPlayerStatic() {
     final config = PlayerConfig(
       title: "Simple Live Player",
       logLevel: AppSettingsController.instance.logEnable.value
           ? PlayerLogLevel.info
           : PlayerLogLevel.error,
-      bufferSizeBytes: _effectiveBufferSizeMb() * 1024 * 1024,
+      bufferSizeBytes: _effectiveBufferSizeMbStatic() * 1024 * 1024,
     );
     switch (AppSettingsController.instance.playerEngine.value) {
       case PlayerEngine.exoPlayer:
@@ -43,6 +44,40 @@ mixin PlayerMixin {
       case PlayerEngine.mpv:
         return MediaKitPlayer(config);
     }
+  }
+
+  static int _effectiveBufferSizeMbStatic() {
+    final user = AppSettingsController.instance.playerBufferSize.value;
+    final recommend = AppSettingsController
+        .instance.playerLiveBufferMode.value.recommendBufferSizeMb;
+    return user < recommend ? recommend : user;
+  }
+
+  /// 切换播放器引擎（销毁旧实例，创建新实例）
+  Future<void> switchPlayerEngine(PlayerEngine engine) async {
+    if (engine == AppSettingsController.instance.playerEngine.value &&
+        _playerInitialized) {
+      return;
+    }
+    final oldPlayer = _player;
+    final config = PlayerConfig(
+      title: "Simple Live Player",
+      logLevel: AppSettingsController.instance.logEnable.value
+          ? PlayerLogLevel.info
+          : PlayerLogLevel.error,
+      bufferSizeBytes: _effectiveBufferSizeMbStatic() * 1024 * 1024,
+    );
+    switch (engine) {
+      case PlayerEngine.exoPlayer:
+        _player = ExoPlayerPlayer(config);
+        break;
+      case PlayerEngine.mpv:
+        _player = MediaKitPlayer(config);
+        break;
+    }
+    _playerInitialized = false;
+    forceCopyHwdec = false;
+    await oldPlayer.dispose();
   }
 
   bool _playerInitialized = false;
@@ -342,6 +377,18 @@ class PlayerController extends BaseController
       Log.w('width:$event  W:${s.width}  H:${s.height}');
       width.value = event ?? 0;
     });
+    _heightSubscription = player.heightStream.listen((event) {
+      final s = player.state;
+      Log.w('height:$event  W:${s.width}  H:${s.height}');
+      height.value = event ?? 0;
+    });
+  }
+
+  /// 切换引擎后重新绑定流到新 player 实例
+  void rebindStreams() {
+    disposeStream();
+    initStream();
+  }
     _heightSubscription = player.heightStream.listen((event) {
       final s = player.state;
       Log.w('height:$event  W:${s.width}  H:${s.height}');
