@@ -215,7 +215,7 @@ class MediaKitPlayer implements BasePlayer {
       case PlayerLogLevel.none:
         return MPVLogLevel.error;
       case PlayerLogLevel.fatal:
-        return MPVLogLevel.fatal;
+        return MPVLogLevel.error;
       case PlayerLogLevel.error:
         return MPVLogLevel.error;
       case PlayerLogLevel.warn:
