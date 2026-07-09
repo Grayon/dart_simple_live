@@ -1,18 +1,25 @@
 import 'dart:async';
 
-import 'package:video_player/video_player.dart' as vp;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'base_player.dart';
 
 /// ExoPlayer (Media3) 播放器实现
 ///
-/// 通过 video_player 包使用 Android 原生 ExoPlayer/Media3 引擎。
-/// 优势：与 Android TV 系统兼容性更好，MediaCodec 硬解更稳定
-/// 劣势：Dart 层不暴露缓冲/解码器精细控制（由 ExoPlayer 自动管理）
+/// 通过自定义 MethodChannel 调用 Android 原生 LiveExoPlayerPlugin，
+/// 针对直播流优化：enableDecoderFallback、小缓冲 LoadControl、LiveConfiguration。
+/// 视频通过 Flutter Texture 渲染。
 class ExoPlayerPlayer implements BasePlayer {
   final PlayerConfig _config;
-  vp.VideoPlayerController? _controller;
   bool _disposed = false;
+  int? _textureId;
+  bool _created = false;
+
+  static const _methodChannel =
+      MethodChannel('com.xycz.simple_live_tv/exo_player');
+  static const _eventChannel =
+      EventChannel('com.xycz.simple_live_tv/exo_player_events');
 
   final _playingController = StreamController<bool>.broadcast();
   final _bufferingController = StreamController<bool>.broadcast();
@@ -26,20 +33,76 @@ class ExoPlayerPlayer implements BasePlayer {
   @override
   Stream<void> get recreateStream => _recreateController.stream;
 
-  vp.VideoPlayerController? get videoController => _controller;
+  final _textureReadyController = StreamController<int>.broadcast();
+
+  /// Texture 就绪通知（PlayerVideo 监听此流来重建渲染器）
+  Stream<int> get textureReadyStream => _textureReadyController.stream;
+
+  StreamSubscription? _eventSubscription;
+
+  int? get textureId => _textureId;
+
+  /// 供 PlayerVideo 提前初始化 Texture（渲染器需要 textureId 才能构建）
+  Future<void> ensureCreatedForRender() async {
+    if (_disposed) return;
+    await _ensureCreated();
+  }
 
   ExoPlayerPlayer(this._config);
 
+  Future<void> _ensureCreated() async {
+    if (_created) return;
+    final result = await _methodChannel.invokeMethod<Map>('create');
+    _textureId = result?['textureId'] as int?;
+    _created = true;
+    if (_textureId != null) {
+      _textureReadyController.add(_textureId!);
+    }
+    _eventSubscription = _eventChannel
+        .receiveBroadcastStream()
+        .listen(_onEvent, onError: _onEventError);
+  }
+
+  void _onEvent(dynamic event) {
+    if (event is! Map) return;
+    final type = event['event'] as String?;
+    switch (type) {
+      case 'playing':
+        _playingController.add(event['value'] as bool? ?? false);
+        break;
+      case 'buffering':
+        _bufferingController.add(event['value'] as bool? ?? false);
+        break;
+      case 'videoSize':
+        final w = event['width'] as int?;
+        final h = event['height'] as int?;
+        if (w != null) _widthController.add(w);
+        if (h != null) _heightController.add(h);
+        break;
+      case 'completed':
+        _completedController.add(true);
+        break;
+      case 'error':
+        final msg = event['message'] as String? ?? 'ExoPlayer error';
+        final code = event['errorCode'];
+        _errorController.add('$msg (code: $code)');
+        _logController.add(PlayerLogEntry(
+          prefix: 'exoplayer',
+          level: PlayerLogLevel.error,
+          text: '$msg (code: $code)',
+        ));
+        break;
+    }
+  }
+
+  void _onEventError(Object error) {
+    _errorController.add('Event channel error: $error');
+  }
+
   @override
   PlayerState get state {
-    final c = _controller;
-    if (c == null) return const PlayerState();
-    return PlayerState(
-      playing: c.value.isPlaying,
-      buffering: c.value.isBuffering,
-      width: c.value.size.width > 0 ? c.value.size.width.toInt() : null,
-      height: c.value.size.height > 0 ? c.value.size.height.toInt() : null,
-    );
+    // ExoPlayer 状态由事件流驱动，这里返回空快照
+    return const PlayerState();
   }
 
   @override
@@ -66,61 +129,29 @@ class ExoPlayerPlayer implements BasePlayer {
   @override
   Future<void> open(String url, {Map<String, String>? headers}) async {
     if (_disposed) return;
-
-    await _controller?.dispose();
-
-    _controller = vp.VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: headers ?? {},
-      videoPlayerOptions: vp.VideoPlayerOptions(mixWithOthers: true),
-    );
-
-    _controller!.addListener(_onControllerUpdate);
-
-    try {
-      await _controller!.initialize();
-      _controller!.play();
-    } catch (e) {
-      _errorController.add('ExoPlayer 初始化失败: $e');
-    }
-  }
-
-  void _onControllerUpdate() {
-    final c = _controller;
-    if (c == null) return;
-    final v = c.value;
-
-    _playingController.add(v.isPlaying);
-    _bufferingController.add(v.isBuffering);
-
-    if (v.size.width > 0) {
-      _widthController.add(v.size.width.toInt());
-    }
-    if (v.size.height > 0) {
-      _heightController.add(v.size.height.toInt());
-    }
-
-    if (v.hasError) {
-      _errorController.add(v.errorDescription ?? 'ExoPlayer 播放错误');
-    }
-
-    // 直播流不会自然 completed，这里不处理
+    await _ensureCreated();
+    await _methodChannel.invokeMethod('open', {
+      'url': url,
+      'headers': headers ?? <String, String>{},
+    });
   }
 
   @override
   Future<void> stop() async {
-    final c = _controller;
-    if (c == null) return;
-    await c.pause();
+    if (!_created) return;
+    await _methodChannel.invokeMethod('stop');
     _playingController.add(false);
   }
 
   @override
   Future<void> dispose() async {
     _disposed = true;
-    _controller?.removeListener(_onControllerUpdate);
-    await _controller?.dispose();
-    _controller = null;
+    _eventSubscription?.cancel();
+    if (_created) {
+      await _methodChannel.invokeMethod('dispose');
+    }
+    _created = false;
+    _textureId = null;
     await _playingController.close();
     await _bufferingController.close();
     await _widthController.close();
@@ -128,30 +159,38 @@ class ExoPlayerPlayer implements BasePlayer {
     await _errorController.close();
     await _completedController.close();
     await _logController.close();
+    await _textureReadyController.close();
     await _recreateController.close();
   }
 
   @override
   Future<void> recreate() async {
     if (_disposed) return;
-    _controller?.removeListener(_onControllerUpdate);
-    await _controller?.dispose();
-    _controller = null;
+    _eventSubscription?.cancel();
+    if (_created) {
+      await _methodChannel.invokeMethod('dispose');
+    }
+    _created = false;
+    _textureId = null;
     _recreateController.add(null);
   }
 
   @override
   Future<void> setProperty(String key, String value) async {
-    // ExoPlayer via video_player 不支持运行时属性设置
+    // 不支持运行时属性设置
   }
 
   @override
   Future<String?> getProperty(String key) async {
+    if (key == 'videoInfo' && _created) {
+      final info = await _methodChannel.invokeMethod<Map>('getVideoInfo');
+      return info?.toString();
+    }
     return null;
   }
 
   @override
   Future<void> applyVideoRenderConfig(VideoRenderConfig config) async {
-    // ExoPlayer 自动管理渲染配置，无需手动设置
+    // ExoPlayer 自动管理渲染配置
   }
 }

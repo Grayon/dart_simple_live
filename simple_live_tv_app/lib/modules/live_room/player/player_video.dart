@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:video_player/video_player.dart' as vp;
 
 import 'base_player.dart';
 import 'exoplayer_player.dart';
@@ -29,7 +28,7 @@ class PlayerVideoConfig {
 ///
 /// 根据播放器引擎类型自动选择渲染 widget：
 /// - MediaKitPlayer → media_kit Video widget
-/// - ExoPlayerPlayer → video_player VideoPlayer widget
+/// - ExoPlayerPlayer → Flutter Texture widget（由原生插件创建）
 ///
 /// 监听 player.recreateStream 以在播放器重建后自动重建渲染器。
 class PlayerVideo extends StatefulWidget {
@@ -50,18 +49,34 @@ class PlayerVideo extends StatefulWidget {
 
 class PlayerVideoState extends State<PlayerVideo> {
   StreamSubscription<void>? _recreateSub;
+  StreamSubscription<int>? _textureReadySub;
+  int? _exoTextureId;
 
   @override
   void initState() {
     super.initState();
     _recreateSub = widget.player.recreateStream.listen((_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _exoTextureId = null;
+        });
+      }
     });
+    final player = widget.player;
+    if (player is ExoPlayerPlayer) {
+      _exoTextureId = player.textureId;
+      _textureReadySub = player.textureReadyStream.listen((id) {
+        if (mounted) {
+          setState(() => _exoTextureId = id);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     _recreateSub?.cancel();
+    _textureReadySub?.cancel();
     super.dispose();
   }
 
@@ -96,17 +111,14 @@ class PlayerVideoState extends State<PlayerVideo> {
     }
 
     if (player is ExoPlayerPlayer) {
-      final vc = player.videoController;
-      if (vc == null) {
+      final textureId = _exoTextureId ?? player.textureId;
+      if (textureId == null) {
         return const SizedBox.expand(child: ColoredBox(color: Colors.black));
       }
       final video = Center(
         child: AspectRatio(
-          aspectRatio: widget.config.aspectRatio ??
-              (vc.value.size.width > 0 && vc.value.size.height > 0
-                  ? vc.value.size.width / vc.value.size.height
-                  : 16 / 9),
-          child: vp.VideoPlayer(vc),
+          aspectRatio: widget.config.aspectRatio ?? 16 / 9,
+          child: Texture(textureId: textureId),
         ),
       );
       if (controls == null) return video;

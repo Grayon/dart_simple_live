@@ -167,8 +167,11 @@ mixin PlayerMixin {
 
       await p.setProperty('audio-stream-silence', 'yes');
     } else if (p is ExoPlayerPlayer) {
-      _playerInitialized = true;
-      // ExoPlayer 自动管理缓冲和解码器，无需手动配置
+      if (!_playerInitialized) {
+        _playerInitialized = true;
+        // 提前创建原生播放器和 Texture，确保 open 前 Surface 已就绪
+        await p.ensureCreatedForRender();
+      }
     }
   }
 }
