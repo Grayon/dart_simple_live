@@ -21,7 +21,7 @@ jobs:
       #签出代码
       - uses: actions/checkout@v5
         with:
-          ref: master
+          ref: ${{ github.ref }}
 
       #APK签名设置
       - name: Decode Android keystore
