@@ -388,9 +388,10 @@ class SettingsPage extends GetView<SettingsController> {
                         .videoHardwareDecoderFocusNode.isFoucsed.value,
                     title: "硬件解码器 (--hwdec)",
                     items: const {
-                      "mediacodec": "mediacodec",
+                      "mediacodec": "mediacodec (零拷贝)",
+                      "mediacodec-copy": "mediacodec-copy (兼容模式)",
                       "auto": "auto",
-                      "no": "no",
+                      "no": "no (软解)",
                     },
                     value: AppSettingsController
                         .instance.videoHardwareDecoder.value,
