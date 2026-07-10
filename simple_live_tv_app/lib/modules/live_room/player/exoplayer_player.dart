@@ -46,6 +46,105 @@ class ExoPlayerPlayer implements BasePlayer {
   Future<void> ensureCreatedForRender() async {
     if (_disposed) return;
     await _ensureCreated();
+    // 首次创建时输出设备 codec 和硬件信息到日志
+    await _dumpDeviceCodecInfo();
+  }
+
+  Future<void> _dumpDeviceCodecInfo() async {
+    try {
+      final hwInfo = await _methodChannel.invokeMethod<Map>('getDeviceHwInfo');
+      if (hwInfo != null) {
+        _logController.add(PlayerLogEntry(
+          prefix: 'device_hw',
+          level: PlayerLogLevel.info,
+          text: '设备硬件信息: ${_formatHwInfo(hwInfo)}',
+        ));
+      }
+    } catch (e) {
+      // 忽略，不影响播放
+    }
+    try {
+      final codecInfo = await _methodChannel.invokeMethod<Map>('getCodecInfo');
+      if (codecInfo != null) {
+        _logController.add(PlayerLogEntry(
+          prefix: 'device_codec',
+          level: PlayerLogLevel.info,
+          text: '设备MediaCodec能力: ${_formatCodecInfo(codecInfo)}',
+        ));
+      }
+    } catch (e) {
+      // 忽略
+    }
+  }
+
+  String _formatHwInfo(Map info) {
+    final build = info['buildInfo'] as Map?;
+    final cpu = info['cpuInfo'] as Map?;
+    final gpu = info['gpuInfo'] as Map?;
+    final mem = info['memInfo'] as Map?;
+    final parts = <String>[];
+    if (build != null) {
+      parts.add('${build['MANUFACTURER']} ${build['MODEL']}');
+      parts.add('hardware=${build['HARDWARE']} device=${build['DEVICE']}');
+      parts.add('SDK=${build['SDK_INT']} Android=${build['RELEASE']}');
+      parts.add('ABIs=${build['SUPPORTED_ABIS']}');
+    }
+    if (cpu != null) {
+      final hw = cpu['Hardware'] ?? cpu['model name'] ?? '';
+      final cores = cpu['cpu cores'] ?? '';
+      if (hw.isNotEmpty) parts.add('CPU: $hw cores=$cores');
+    }
+    if (gpu != null && gpu.isNotEmpty) {
+      parts.add('GPU: ${gpu.entries.first.value.toString().split('\n').first}');
+    }
+    if (mem != null) {
+      parts.add('MemTotal=${mem['MemTotal']}');
+    }
+    return parts.join(' | ');
+  }
+
+  String _formatCodecInfo(Map info) {
+    final decoders = info['videoDecoders'] as List?;
+    if (decoders == null) return info.toString();
+    final parts = <String>[];
+    parts.add('共${info['totalDecoderCount']}个视频解码器');
+    for (final d in decoders) {
+      final codec = d as Map;
+      final name = codec['name'];
+      final isHw = codec['isHardwareAccelerated'];
+      final isVendor = codec['isVendor'];
+      final caps = codec['capabilities'] as List?;
+      if (caps == null) continue;
+      for (final c in caps) {
+        final cap = c as Map;
+        final mimeType = cap['mimeType'];
+        final maxW = cap['maxWidth'];
+        final maxH = cap['maxHeight'];
+        final maxFps = cap['maxFrameRate'];
+        final testResults = cap['testResults'] as List?;
+        final profileLevels = cap['profileLevels'] as List?;
+        final buf = StringBuffer();
+        buf.write('$name [$mimeType] hw=$isHw vendor=$isVendor max=${maxW}x$maxH@${maxFps}fps');
+        if (profileLevels != null && profileLevels.isNotEmpty) {
+          buf.write(' profiles=${profileLevels.take(5).join(',')}');
+        }
+        if (testResults != null) {
+          for (final tr in testResults) {
+            final test = tr as Map;
+            final supported = test['supported'];
+            final tampered = test['tampered'];
+            final res = test['resolution'];
+            if (tampered == true) {
+              buf.write(' [$res: TAMPERED(says $supported)]');
+            } else {
+              buf.write(' [$res: $supported]');
+            }
+          }
+        }
+        parts.add(buf.toString());
+      }
+    }
+    return parts.join('\n  ');
   }
 
   ExoPlayerPlayer(this._config);

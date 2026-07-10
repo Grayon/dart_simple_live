@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:simple_live_tv_app/app/controller/base_controller.dart';
 import 'package:get/get.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -130,6 +131,81 @@ mixin PlayerMixin {
     _playerInitialized = false;
   }
 
+  static const _exoChannel = MethodChannel('com.xycz.simple_live_tv/exo_player');
+
+  /// 通过 ExoPlayer 插件的 MethodChannel 获取 Android 设备 codec 和硬件信息，
+  /// 即使当前用的是 mpv 播放器也能输出诊断日志。
+  void _dumpAndroidCodecInfoForMpv() {
+    // 不阻塞初始化，异步获取
+    () async {
+      try {
+        final hwInfo = await _exoChannel.invokeMethod<Map>('getDeviceHwInfo');
+        if (hwInfo != null) {
+          final build = hwInfo['buildInfo'] as Map?;
+          final cpu = hwInfo['cpuInfo'] as Map?;
+          final mem = hwInfo['memInfo'] as Map?;
+          final parts = <String>[];
+          if (build != null) {
+            parts.add('${build['MANUFACTURER']} ${build['MODEL']}');
+            parts.add('hardware=${build['HARDWARE']} device=${build['DEVICE']}');
+            parts.add('SDK=${build['SDK_INT']} Android=${build['RELEASE']}');
+            parts.add('ABIs=${build['SUPPORTED_ABIS']}');
+          }
+          if (cpu != null) {
+            final hw = cpu['Hardware'] ?? cpu['model name'] ?? '';
+            if (hw.isNotEmpty) parts.add('CPU: $hw');
+          }
+          if (mem != null) parts.add('MemTotal=${mem['MemTotal']}');
+          Log.d('[设备硬件] ${parts.join(' | ')}');
+        }
+      } catch (_) {}
+      try {
+        final codecInfo = await _exoChannel.invokeMethod<Map>('getCodecInfo');
+        if (codecInfo != null) {
+          final decoders = codecInfo['videoDecoders'] as List?;
+          if (decoders != null) {
+            Log.d('[设备Codec] 共${codecInfo['totalDecoderCount']}个视频解码器:');
+            for (final d in decoders) {
+              final codec = d as Map;
+              final name = codec['name'];
+              final isHw = codec['isHardwareAccelerated'];
+              final caps = codec['capabilities'] as List?;
+              if (caps == null) continue;
+              for (final c in caps) {
+                final cap = c as Map;
+                final mimeType = cap['mimeType'];
+                final maxW = cap['maxWidth'];
+                final maxH = cap['maxHeight'];
+                final maxFps = cap['maxFrameRate'];
+                final testResults = cap['testResults'] as List?;
+                final profileLevels = cap['profileLevels'] as List?;
+                final buf = StringBuffer();
+                buf.write('  $name [$mimeType] hw=$isHw max=${maxW}x$maxH@${maxFps}fps');
+                if (profileLevels != null && profileLevels.isNotEmpty) {
+                  buf.write(' profiles=${profileLevels.take(5).join(',')}');
+                }
+                if (testResults != null) {
+                  for (final tr in testResults) {
+                    final test = tr as Map;
+                    final supported = test['supported'];
+                    final tampered = test['tampered'];
+                    final res = test['resolution'];
+                    if (tampered == true) {
+                      buf.write(' [$res: TAMPERED(claims $supported)]');
+                    } else {
+                      buf.write(' [$res: $supported]');
+                    }
+                  }
+                }
+                Log.d(buf.toString());
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }();
+  }
+
   /// 初始化播放器并设置性能相关参数
   Future<void> initializePlayer() async {
     final p = player;
@@ -138,6 +214,11 @@ mixin PlayerMixin {
       if (!_playerInitialized) {
         _playerInitialized = true;
         p.initVideoController(_buildVideoRenderConfig());
+      }
+
+      // mpv 也输出设备 codec 信息（通过 ExoPlayer 插件的 native channel）
+      if (Platform.isAndroid) {
+        _dumpAndroidCodecInfoForMpv();
       }
 
       // 自定义音频输出驱动
@@ -414,9 +495,14 @@ class PlayerController extends BaseController
     _hwFormatFallbackDone = true;
     final p = player;
     if (p is MediaKitPlayer) {
-      Log.w("mediacodec_embed 不支持软解帧，切换 vo=gpu + hwdec=no");
-      p.setProperty('vo', 'gpu');
-      p.setProperty('hwdec', 'no');
+      Log.w("mediacodec_embed 不支持软解帧，重建播放器用 vo=gpu 软解渲染");
+      // VO 不能运行时切换，必须重建
+      AppSettingsController.instance.setHardwareDecode(false);
+      _voFatalHandled = true; // 防止 _handleVoFatal 重复触发
+      recreatePlayer().then((_) {
+        _voFatalHandled = false;
+        onVoFatal();
+      });
     }
   }
 

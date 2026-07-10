@@ -1,7 +1,12 @@
 package com.xycz.simple_live_tv
 
 import android.content.Context
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaFormat
 import android.net.Uri
+import android.os.Build
+import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
@@ -19,6 +24,8 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
+import java.io.File
+import java.io.FileFilter
 
 /** 自定义 ExoPlayer 插件，针对直播流优化 */
 class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -63,10 +70,25 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     override fun onPlayerError(error: PlaybackException) {
+      val detail = buildString {
+        append(error.message ?: "Unknown ExoPlayer error")
+        // 输出错误链
+        var cause: Throwable? = error.cause
+        while (cause != null) {
+          append(" → ${cause.javaClass.simpleName}: ${cause.message}")
+          cause = cause.cause
+        }
+        // 如果是 MediaCodec 错误，输出当前视频格式信息
+        val fmt = player?.videoFormat
+        if (fmt != null) {
+          append(" | format=${fmt.codecs} ${fmt.width}x${fmt.height}@${fmt.frameRate}fps")
+        }
+      }
+      Log.e("LiveExoPlayer", "Player error: $detail", error)
       eventSink?.success(
         mapOf(
           "event" to "error",
-          "message" to (error.message ?: "Unknown ExoPlayer error"),
+          "message" to detail,
           "errorCode" to error.errorCode
         )
       )
@@ -153,6 +175,12 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             )
           )
         }
+      }
+      "getCodecInfo" -> {
+        result.success(dumpAllCodecInfo())
+      }
+      "getDeviceHwInfo" -> {
+        result.success(dumpDeviceHwInfo())
       }
       else -> result.notImplemented()
     }
@@ -242,6 +270,302 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     p.setMediaSource(mediaSource)
     p.prepare()
     p.playWhenReady = true
+  }
+
+  /**
+   * 输出设备所有 MediaCodec 解码器的详细能力信息。
+   * 用于诊断 TCL 等设备 MediaCodec capability 查询不准确的问题。
+   */
+  private fun dumpAllCodecInfo(): Map<String, Any> {
+    val result = mutableMapOf<String, Any>()
+    val codecsList = mutableListOf<Map<String, Any>>()
+
+    try {
+      val codecList = MediaCodecList(MediaCodecList.ALL_CODECS)
+      val allCodecs = codecList.codecInfos
+
+      // 只关注视频解码器
+      val videoDecoders = allCodecs.filter { info ->
+        !info.isEncoder && info.supportedTypes.any { it.startsWith("video/") }
+      }.sortedBy { it.name }
+
+      for (info in videoDecoders) {
+        val codecInfo = mutableMapOf<String, Any>()
+        codecInfo["name"] = info.name
+        codecInfo["isHardwareAccelerated"] = info.isHardwareAccelerated
+        codecInfo["isSoftwareOnly"] = info.isSoftwareOnly
+        codecInfo["isVendor"] = info.isVendor
+        codecInfo["supportedTypes"] = info.supportedTypes.toList()
+
+        val capabilitiesList = mutableListOf<Map<String, Any>>()
+        for (mimeType in info.supportedTypes) {
+          if (!mimeType.startsWith("video/")) continue
+          try {
+            val caps = info.getCapabilitiesForType(mimeType)
+            val capMap = mutableMapOf<String, Any>()
+            capMap["mimeType"] = mimeType
+
+            // 最大分辨率
+            val vcaps = caps.videoCapabilities
+            if (vcaps != null) {
+              capMap["maxWidth"] = vcaps.supportedWidths.upper
+              capMap["maxHeight"] = vcaps.supportedHeights.upper
+              capMap["maxFrameRate"] = vcaps.supportedFrameRates.upper
+              capMap["maxInstanceCount"] = caps.maxSupportedInstances
+
+              // 测试常见分辨率的 capability
+              val testResolutions = listOf(
+                Triple(1920, 1080, 30),
+                Triple(1920, 1080, 60),
+                Triple(2560, 1440, 30),
+                Triple(2560, 1440, 60),
+                Triple(3840, 2160, 30),
+                Triple(3840, 2160, 60),
+              )
+              val results = mutableListOf<Map<String, Any>>()
+              for ((w, h, fps) in testResolutions) {
+                val format = MediaFormat.createVideoFormat(mimeType, w, h).apply {
+                  setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                  if (mimeType == MediaFormat.MIMETYPE_VIDEO_AVC) {
+                    // H.264 High@5.1 for 2K@60
+                    setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
+                    setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel51)
+                  }
+                }
+                val resultFlags = vcaps.supports(format)
+                val supported = (resultFlags and MediaCodecInfo.VideoCapabilities.FLAG_SUPPORTED) != 0
+                val maybe = (resultFlags and MediaCodecInfo.VideoCapabilities.FLAG_TAMPERED) != 0
+                results.add(mapOf(
+                  "resolution" to "${w}x${h}@${fps}",
+                  "supported" to supported,
+                  "tampered" to maybe,
+                  "flags" to resultFlags,
+                ))
+              }
+              capMap["testResults"] = results
+
+              // 支持的 color formats
+              capMap["colorFormats"] = caps.colorFormats.toList()
+
+              // 支持的 profile/level
+              val profileLevels = caps.profileLevels
+              if (profileLevels != null) {
+                capMap["profileLevels"] = profileLevels.map { pl ->
+                  val profileName = when (mimeType) {
+                    MediaFormat.MIMETYPE_VIDEO_AVC -> when (pl.profile) {
+                      MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline -> "Baseline"
+                      MediaCodecInfo.CodecProfileLevel.AVCProfileMain -> "Main"
+                      MediaCodecInfo.CodecProfileLevel.AVCProfileHigh -> "High"
+                      MediaCodecInfo.CodecProfileLevel.AVCProfileHigh10 -> "High10"
+                      else -> "0x${Integer.toHexString(pl.profile)}"
+                    }
+                    else -> "0x${Integer.toHexString(pl.profile)}"
+                  }
+                  val levelName = when (mimeType) {
+                    MediaFormat.MIMETYPE_VIDEO_AVC -> when (pl.level) {
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel3 -> "3"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel31 -> "3.1"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel4 -> "4"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel41 -> "4.1"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel42 -> "4.2"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel5 -> "5"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel51 -> "5.1"
+                      MediaCodecInfo.CodecProfileLevel.AVCLevel52 -> "5.2"
+                      else -> "0x${Integer.toHexString(pl.level)}"
+                    }
+                    else -> "0x${Integer.toHexString(pl.level)}"
+                  }
+                  "$profileName@$levelName"
+                }
+              }
+            }
+            capabilitiesList.add(capMap)
+          } catch (e: Exception) {
+            capabilitiesList.add(mapOf(
+              "mimeType" to mimeType,
+              "error" to (e.message ?: "Unknown error")
+            ))
+          }
+        }
+        codecInfo["capabilities"] = capabilitiesList
+        codecsList.add(codecInfo)
+      }
+
+      result["videoDecoders"] = codecsList
+      result["totalDecoderCount"] = codecsList.size
+      result["totalCodecCount"] = allCodecs.size
+      result["sdkInt"] = Build.VERSION.SDK_INT
+      result["manufacturer"] = Build.MANUFACTURER
+      result["model"] = Build.MODEL
+      result["hardware"] = Build.HARDWARE
+      result["device"] = Build.DEVICE
+      result["board"] = Build.BOARD
+
+      // 同时打印到 logcat 方便调试
+      for (codec in codecsList) {
+        val name = codec["name"]
+        val types = codec["supportedTypes"]
+        Log.d("LiveExoCodec", "Codec: $name, types=$types, hw=${codec["isHardwareAccelerated"]}")
+        val caps = codec["capabilities"] as? List<Map<String, Any>>
+        caps?.forEach { cap ->
+          val mimeType = cap["mimeType"]
+          val testResults = cap["testResults"] as? List<Map<String, Any>>
+          testResults?.forEach { tr ->
+            Log.d("LiveExoCodec", "  $mimeType ${tr["resolution"]}: supported=${tr["supported"]}, tampered=${tr["tampered"]}")
+          }
+        }
+      }
+
+    } catch (e: Exception) {
+      result["error"] = (e.message ?: "Unknown error")
+      Log.e("LiveExoCodec", "dumpAllCodecInfo failed", e)
+    }
+
+    return result
+  }
+
+  /**
+   * 输出 CPU/GPU/VPU 硬件信息，从 /proc 和 /sys 读取。
+   */
+  private fun dumpDeviceHwInfo(): Map<String, Any> {
+    val result = mutableMapOf<String, Any>()
+
+    // CPU info from /proc/cpuinfo
+    try {
+      val cpuInfo = File("/proc/cpuinfo").readText()
+      val cpuMap = mutableMapOf<String, String>()
+      cpuInfo.lines().forEach { line ->
+        val idx = line.indexOf(':')
+        if (idx > 0) {
+          val key = line.substring(0, idx).trim()
+          val value = line.substring(idx + 1).trim()
+          if (key.isNotEmpty()) cpuMap[key] = value
+        }
+      }
+      result["cpuInfo"] = cpuMap
+    } catch (e: Exception) {
+      result["cpuInfoError"] = (e.message ?: "Unknown")
+    }
+
+    // CPU 频率
+    try {
+      val cpuFreqDir = File("/sys/devices/system/cpu/cpu0/cpufreq")
+      if (cpuFreqDir.exists()) {
+        val freqInfo = mutableMapOf<String, String>()
+        listOf("cpuinfo_max_freq", "cpuinfo_min_freq", "scaling_cur_freq", "scaling_governor").forEach { fname ->
+          val f = File(cpuFreqDir, fname)
+          if (f.exists()) freqInfo[fname] = f.readText().trim()
+        }
+        result["cpuFreq"] = freqInfo
+      }
+    } catch (_: Exception) {}
+
+    // GPU info from various paths
+    try {
+      val gpuInfo = mutableMapOf<String, String>()
+      // Mali GPU
+      val maliPaths = listOf(
+        "/sys/class/misc/mali0/device/gpuinfo",
+        "/sys/devices/platform/soc/1c00000.gpu/misc/mali0/device/gpuinfo",
+        "/proc/mali"
+      )
+      for (path in maliPaths) {
+        val f = File(path)
+        if (f.exists()) {
+          gpuInfo[path] = f.readText().trim().take(2000)
+        }
+      }
+      // GPU frequency
+      val gpuFreqDirs = listOf(
+        "/sys/class/misc/mali0/device/devfreq/mali0",
+        "/sys/devices/platform/soc/1c00000.gpu/devfreq/mali0"
+      )
+      for (dirPath in gpuFreqDirs) {
+        val dir = File(dirPath)
+        if (dir.exists()) {
+          listOf("max_freq", "min_freq", "cur_freq").forEach { fname ->
+            val f = File(dir, fname)
+            if (f.exists()) gpuInfo["gpu_$fname"] = f.readText().trim()
+          }
+        }
+      }
+      if (gpuInfo.isNotEmpty()) result["gpuInfo"] = gpuInfo
+    } catch (_: Exception) {}
+
+    // VPU / Video decoder info
+    try {
+      val vpuInfo = mutableMapOf<String, String>()
+      // MTK VPU
+      val mtkVpuPaths = listOf(
+        "/sys/class/misc/mtk-vpu",
+        "/proc/mtk-vpu"
+      )
+      for (path in mtkVpuPaths) {
+        val f = File(path)
+        if (f.exists()) vpuInfo[path] = f.readText().trim().take(1000)
+      }
+      // Video codec info from sysfs
+      val codecPaths = listOf(
+        "/sys/class/vcodec",
+        "/sys/devices/virtual/vcodec",
+        "/proc/avcodec"
+      )
+      for (path in codecPaths) {
+        val dir = File(path)
+        if (dir.exists() && dir.isDirectory) {
+          dir.listFiles()?.forEach { file ->
+            if (file.isFile) {
+              vpuInfo["${path}/${file.name}"] = file.readText().trim().take(500)
+            }
+          }
+        }
+      }
+      if (vpuInfo.isNotEmpty()) result["vpuInfo"] = vpuInfo
+    } catch (_: Exception) {}
+
+    // Memory info
+    try {
+      val memInfo = File("/proc/meminfo").readText()
+      val memMap = mutableMapOf<String, String>()
+      memInfo.lines().forEach { line ->
+        val idx = line.indexOf(':')
+        if (idx > 0) {
+          memMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+        }
+      }
+      result["memInfo"] = memMap
+    } catch (_: Exception) {}
+
+    // Build info
+    result["buildInfo"] = mapOf(
+      "MANUFACTURER" to Build.MANUFACTURER,
+      "BRAND" to Build.BRAND,
+      "MODEL" to Build.MODEL,
+      "DEVICE" to Build.DEVICE,
+      "HARDWARE" to Build.HARDWARE,
+      "BOARD" to Build.BOARD,
+      "PRODUCT" to Build.PRODUCT,
+      "DISPLAY" to Build.DISPLAY,
+      "FINGERPRINT" to Build.FINGERPRINT,
+      "SDK_INT" to Build.VERSION.SDK_INT,
+      "RELEASE" to Build.VERSION.RELEASE,
+      "CODENAME" to Build.VERSION.CODENAME,
+      "SUPPORTED_ABIS" to Build.SUPPORTED_ABIS.toList(),
+      "SUPPORTED_32_BIT_ABIS" to Build.SUPPORTED_32_BIT_ABIS.toList(),
+      "SUPPORTED_64_BIT_ABIS" to Build.SUPPORTED_64_BIT_ABIS.toList(),
+    )
+
+    // 同时打印到 logcat
+    Log.d("LiveExoHw", "Device HW Info: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.HARDWARE})")
+    Log.d("LiveExoHw", "SDK: ${Build.VERSION.SDK_INT}, ABIs: ${Build.SUPPORTED_ABIS.toList()}")
+    (result["cpuInfo"] as? Map<String, String>)?.let { cpu ->
+      Log.d("LiveExoHw", "CPU: ${cpu["Hardware"] ?: cpu["model name"] ?: "unknown"}, cores: ${cpu["cpu cores"] ?: "?"}")
+    }
+    (result["gpuInfo"] as? Map<String, String>)?.let { gpu ->
+      gpu.forEach { (k, v) -> Log.d("LiveExoHw", "GPU $k: $v") }
+    }
+
+    return result
   }
 
   private fun releasePlayer() {
