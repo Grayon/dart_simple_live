@@ -310,11 +310,6 @@ class ExoPlayerPlayer implements BasePlayer {
       case 'video-format':
         return _extractCodecName(info?['codec']);
       case 'video-codec':
-        // 优先返回实际解码器名称（如 OMX.qcom.video.decoder.avc）
-        final decoder = info?['videoDecoder'] as String?;
-        if (decoder != null && decoder.isNotEmpty) {
-          return decoder;
-        }
         return _extractCodecName(info?['codec']);
       case 'width':
         final w = info?['width'] as int?;
@@ -347,25 +342,8 @@ class ExoPlayerPlayer implements BasePlayer {
         if (ch == null || ch == 0) return null;
         return ch.toString();
       case 'audio-codec':
-        final decoder = info?['audioDecoder'] as String?;
-        if (decoder != null && decoder.isNotEmpty) {
-          return decoder;
-        }
         return _extractCodecName(info?['audioCodec'] as String?);
       case 'hwdec':
-        // 根据解码器名称判断是否硬解
-        final decoder = info?['videoDecoder'] as String?;
-        if (decoder != null && decoder.isNotEmpty) {
-          if (decoder.contains('OMX.') ||
-              decoder.contains('c2.') ||
-              decoder.contains('android.media.MediaCodec')) {
-            return 'mediacodec';
-          }
-          if (decoder.contains('ffmpeg') || decoder.contains('FFmpeg')) {
-            return 'no';
-          }
-          return 'mediacodec';
-        }
         return 'mediacodec';
       case 'vo':
         return 'exoplayer-surface';
