@@ -482,7 +482,7 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kCustomPlayerOutput, e);
   }
 
-  var videoOutputDriver = "mediacodec_embed".obs;
+  var videoOutputDriver = "gpu".obs;
   void setVideoOutputDriver(String e) {
     videoOutputDriver.value = e;
     LocalStorageService.instance
@@ -496,7 +496,7 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kAudioOutputDriver, e);
   }
 
-  var videoHardwareDecoder = "mediacodec".obs;
+  var videoHardwareDecoder = "mediacodec-copy".obs;
   void setVideoHardwareDecoder(String e) {
     videoHardwareDecoder.value = e;
     LocalStorageService.instance

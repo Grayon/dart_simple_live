@@ -283,10 +283,10 @@ class SettingsPage extends GetView<SettingsController> {
             () => SettingsItemWidget(
               foucsNode: controller.compatibleModeFocusNode,
               autofocus: controller.compatibleModeFocusNode.isFoucsed.value,
-              title: "强制硬件解码",
+              title: "零拷贝硬解（高性能）",
               items: const {
-                0: "关",
-                1: "开",
+                0: "关（兼容模式，推荐）",
+                1: "开（零拷贝，性能好）",
               },
               value: AppSettingsController.instance.playerCompatMode.value
                   ? 1

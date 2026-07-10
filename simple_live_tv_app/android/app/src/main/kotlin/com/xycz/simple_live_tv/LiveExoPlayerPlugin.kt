@@ -6,17 +6,21 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.analytics.DefaultAnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -39,6 +43,55 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
   private var textureEntry: TextureRegistry.SurfaceProducer? = null
   private var eventSink: EventChannel.EventSink? = null
   private var currentUrl: String? = null
+
+  // 播放统计
+  private var totalDroppedFrames: Int = 0
+  private var videoDecoderName: String? = null
+  private var audioDecoderName: String? = null
+
+  private val analyticsListener = object : DefaultAnalyticsListener() {
+    override fun onVideoEnabled(
+      eventTime: AnalyticsListener.EventTime,
+      trackType: Int,
+      trackSelectionParameters: TrackSelectionParameters,
+      trackGroupIndex: Int,
+      trackIndex: Int,
+      trackFormat: androidx.media3.common.Format?,
+      trackSelectionReason: Int,
+      trackSelectionData: Any?,
+      mediaTimeOffsetMs: Long
+    ) {
+      // 视频轨道启用时记录
+    }
+
+    override fun onVideoDecoderInitialized(
+      eventTime: AnalyticsListener.EventTime,
+      decoderName: String,
+      initializedTimestampMs: Long,
+      initializationDurationMs: Long
+    ) {
+      videoDecoderName = decoderName
+      Log.d("LiveExoPlayer", "Video decoder initialized: $decoderName")
+    }
+
+    override fun onAudioDecoderInitialized(
+      eventTime: AnalyticsListener.EventTime,
+      decoderName: String,
+      initializedTimestampMs: Long,
+      initializationDurationMs: Long
+    ) {
+      audioDecoderName = decoderName
+      Log.d("LiveExoPlayer", "Audio decoder initialized: $decoderName")
+    }
+
+    override fun onDroppedVideoFrames(
+      eventTime: AnalyticsListener.EventTime,
+      droppedFrames: Int,
+      elapsedMs: Long
+    ) {
+      totalDroppedFrames += droppedFrames
+    }
+  }
 
   private val playerListener = object : Player.Listener {
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -161,17 +214,28 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         if (p == null) {
           result.success(null)
         } else {
-          val format = p.videoFormat
+          val vFormat = p.videoFormat
+          val aFormat = p.audioFormat
           result.success(
             mapOf(
-              "width" to (format?.width ?: 0),
-              "height" to (format?.height ?: 0),
-              "frameRate" to (format?.frameRate ?: 0f),
-              "codec" to (format?.codecs ?: ""),
-              "bitrate" to (format?.bitrate ?: 0),
+              "width" to (vFormat?.width ?: 0),
+              "height" to (vFormat?.height ?: 0),
+              "frameRate" to (vFormat?.frameRate ?: 0f),
+              "codec" to (vFormat?.codecs ?: ""),
+              "bitrate" to (vFormat?.bitrate ?: 0),
+              "videoDecoder" to (videoDecoderName ?: ""),
+              "audioCodec" to (aFormat?.codecs ?: ""),
+              "audioBitrate" to (aFormat?.bitrate ?: 0),
+              "audioSampleRate" to (aFormat?.sampleRate ?: 0),
+              "audioChannels" to (aFormat?.channelCount ?: 0),
+              "audioDecoder" to (audioDecoderName ?: ""),
+              "droppedFrames" to totalDroppedFrames,
               "isPlaying" to p.isPlaying,
               "bufferedPosition" to p.bufferedPosition,
               "currentPosition" to p.currentPosition,
+              "contentDuration" to p.duration,
+              "playbackState" to p.playbackState,
+              "playbackSpeed" to p.playbackParameters.speed,
             )
           )
         }
@@ -214,7 +278,10 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       .setTrackSelector(trackSelector)
       .setLoadControl(loadControl)
       .build()
-      .also { it.addListener(playerListener) }
+      .also {
+        it.addListener(playerListener)
+        it.addAnalyticsListener(analyticsListener)
+      }
 
     // 立即绑定 Surface（SurfaceProducer 创建后 surface 已可用）
     entry.surface?.let { surface ->

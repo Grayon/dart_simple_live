@@ -35,6 +35,11 @@ class ExoPlayerPlayer implements BasePlayer {
 
   final _textureReadyController = StreamController<int>.broadcast();
 
+  /// 缓存的视频信息（供 getProperty 查询）
+  Map<String, dynamic>? _videoInfo;
+  int _bufferedPositionMs = 0;
+  int _currentPositionMs = 0;
+
   /// Texture 就绪通知（PlayerVideo 监听此流来重建渲染器）
   Stream<int> get textureReadyStream => _textureReadyController.stream;
 
@@ -177,6 +182,8 @@ class ExoPlayerPlayer implements BasePlayer {
         final h = event['height'] as int?;
         if (w != null) _widthController.add(w);
         if (h != null) _heightController.add(h);
+        // 异步拉取完整视频信息供 getProperty 使用
+        _refreshVideoInfo();
         break;
       case 'completed':
         _completedController.add(true);
@@ -279,13 +286,139 @@ class ExoPlayerPlayer implements BasePlayer {
     // 不支持运行时属性设置
   }
 
+  Future<void> _refreshVideoInfo() async {
+    if (!_created) return;
+    try {
+      final info = await _methodChannel.invokeMethod<Map>('getVideoInfo');
+      if (info != null) {
+        _videoInfo = Map<String, dynamic>.from(info);
+        _bufferedPositionMs = (info['bufferedPosition'] as int?) ?? 0;
+        _currentPositionMs = (info['currentPosition'] as int?) ?? 0;
+      }
+    } catch (_) {}
+  }
+
   @override
   Future<String?> getProperty(String key) async {
-    if (key == 'videoInfo' && _created) {
-      final info = await _methodChannel.invokeMethod<Map>('getVideoInfo');
-      return info?.toString();
+    if (!_created) return null;
+    // 每次查询都刷新一次，确保数据新鲜
+    await _refreshVideoInfo();
+    final info = _videoInfo;
+    switch (key) {
+      case 'video-format':
+        return _extractCodecName(info?['codec']);
+      case 'video-codec':
+        // 优先返回实际解码器名称（如 OMX.qcom.video.decoder.avc）
+        final decoder = info?['videoDecoder'] as String?;
+        if (decoder != null && decoder.isNotEmpty) {
+          return decoder;
+        }
+        return _extractCodecName(info?['codec']);
+      case 'width':
+        final w = info?['width'] as int?;
+        if (w == null || w == 0) return null;
+        return w.toString();
+      case 'height':
+        final h = info?['height'] as int?;
+        if (h == null || h == 0) return null;
+        return h.toString();
+      case 'container-fps':
+        final fps = info?['frameRate'];
+        if (fps == null || fps == 0) return null;
+        return fps.toString();
+      case 'video-bitrate':
+        final br = info?['bitrate'] as int?;
+        if (br == null || br == 0) return null;
+        return br.toString();
+      case 'audio-bitrate':
+        final br = info?['audioBitrate'] as int?;
+        if (br == null || br == 0) return null;
+        return br.toString();
+      case 'audio-format':
+        return _extractCodecName(info?['audioCodec'] as String?);
+      case 'audio-samplerate':
+        final sr = info?['audioSampleRate'] as int?;
+        if (sr == null || sr == 0) return null;
+        return sr.toString();
+      case 'audio-channels':
+        final ch = info?['audioChannels'] as int?;
+        if (ch == null || ch == 0) return null;
+        return ch.toString();
+      case 'audio-codec':
+        final decoder = info?['audioDecoder'] as String?;
+        if (decoder != null && decoder.isNotEmpty) {
+          return decoder;
+        }
+        return _extractCodecName(info?['audioCodec'] as String?);
+      case 'hwdec':
+        // 根据解码器名称判断是否硬解
+        final decoder = info?['videoDecoder'] as String?;
+        if (decoder != null && decoder.isNotEmpty) {
+          if (decoder.contains('OMX.') ||
+              decoder.contains('c2.') ||
+              decoder.contains('android.media.MediaCodec')) {
+            return 'mediacodec';
+          }
+          if (decoder.contains('ffmpeg') || decoder.contains('FFmpeg')) {
+            return 'no';
+          }
+          return 'mediacodec';
+        }
+        return 'mediacodec';
+      case 'vo':
+        return 'exoplayer-surface';
+      case 'ao':
+        return 'audiotrack';
+      case 'cache-used':
+        final cached = _bufferedPositionMs - _currentPositionMs;
+        if (cached <= 0) return '0';
+        // 粗略估算：2K H.264 ~5Mbps ≈ 625KB/s
+        final approxKb = (cached * 625 / 1000).round();
+        return approxKb.toString();
+      case 'demuxer-cache-duration':
+        final cached = _bufferedPositionMs - _currentPositionMs;
+        if (cached <= 0) return '0';
+        return (cached / 1000).toStringAsFixed(3);
+      case 'estimated-vf-fps':
+        final fps = info?['frameRate'];
+        if (fps == null || fps == 0) return null;
+        return fps.toString();
+      case 'avsync':
+        return '0';
+      case 'drop-frame-count':
+        final dropped = info?['droppedFrames'] as int?;
+        if (dropped == null || dropped == 0) return null;
+        return dropped.toString();
+      case 'vo-drop-frame-count':
+        return null;
+      case 'mistimed-frame-count':
+        return null;
+      case 'playback-speed':
+        final speed = info?['playbackSpeed'] as double?;
+        if (speed == null) return null;
+        return speed.toString();
+      case 'media-title':
+        return currentUrl?.split('/').last.split('?').first;
+      case 'path':
+        return currentUrl;
+      default:
+        return null;
     }
-    return null;
+  }
+
+  String? _extractCodecName(String? codecString) {
+    if (codecString == null || codecString.isEmpty) return null;
+    // codec 字段如 "avc1.640033" → "h264"
+    if (codecString.startsWith('avc1') || codecString.startsWith('avc3')) {
+      return 'h264';
+    }
+    if (codecString.startsWith('hev1') || codecString.startsWith('hvc1')) {
+      return 'hevc';
+    }
+    if (codecString.startsWith('av01')) return 'av1';
+    if (codecString.startsWith('vp09')) return 'vp9';
+    if (codecString.startsWith('vp8')) return 'vp8';
+    return codecString;
   }
 
   @override

@@ -105,6 +105,9 @@ mixin PlayerMixin {
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
+    // 零拷贝硬解模式：vo=mediacodec_embed + hwdec=mediacodec
+    // MediaCodec 直接输出到 Surface，性能最好
+    // 但部分芯片/高分辨率兼容性差，可能黑屏
     if (c.playerCompatMode.value) {
       return VideoRenderConfig(
         vo: Platform.isAndroid ? 'mediacodec_embed' : null,
@@ -112,11 +115,12 @@ mixin PlayerMixin {
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
-    // 默认 vo=gpu + hwdec=mediacodec（mediacodec-copy 路径）
-    // mediacodec_embed 是 Surface 直出零拷贝，高分辨率/部分芯片兼容性差
-    // gpu VO 走 OpenGL 渲染，兼容性好，2K/4K 硬解也能正常工作
-    final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
-    final vo = c.hardwareDecode.value ? 'gpu' : 'gpu';
+    // 默认 vo=gpu + hwdec=mediacodec-copy
+    // mediacodec-copy: MediaCodec 解码后拷贝到 OpenGL 纹理，由 gpu VO 渲染
+    // 这是 Android 上兼容性最好的硬解方案，2K/4K 各芯片均正常
+    // mediacodec (零拷贝) 必须搭配 vo=mediacodec_embed，否则黑屏
+    final hwdec = c.hardwareDecode.value ? 'mediacodec-copy' : 'no';
+    final vo = 'gpu';
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? vo : null,
@@ -517,8 +521,12 @@ class PlayerController extends BaseController
       final c = AppSettingsController.instance;
       if (c.customPlayerOutput.value &&
           c.videoOutputDriver.value.isNotEmpty) {
-        Log.w("VO 驱动 ${c.videoOutputDriver.value} 不存在，回退到 mediacodec_embed");
-        c.setVideoOutputDriver('mediacodec_embed');
+        Log.w("VO 驱动 ${c.videoOutputDriver.value} 不存在，回退到 gpu");
+        c.setVideoOutputDriver('gpu');
+        // 确保 hwdec 与 gpu VO 兼容
+        if (c.videoHardwareDecoder.value == 'mediacodec') {
+          c.setVideoHardwareDecoder('mediacodec-copy');
+        }
       }
     }
 
