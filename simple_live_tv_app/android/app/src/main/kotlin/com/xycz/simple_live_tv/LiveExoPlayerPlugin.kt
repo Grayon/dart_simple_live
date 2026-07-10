@@ -188,7 +188,12 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       .build()
       .also { it.addListener(playerListener) }
 
-    // Surface 就绪时绑定到播放器
+    // 立即绑定 Surface（SurfaceProducer 创建后 surface 已可用）
+    entry.surface?.let { surface ->
+      player?.setVideoSurface(surface)
+    }
+
+    // Surface 重建时重新绑定
     entry.setCallback(
       object : TextureRegistry.SurfaceProducer.Callback {
         override fun onSurfaceCreated() {

@@ -359,7 +359,7 @@ class PlayerController extends BaseController
           (event.text.contains('No render context set') ||
               event.text.contains('Error opening/initializing the selected video_out'))) {
         Log.e("检测到 VO 崩溃: ${event.text}", StackTrace.current);
-        _handleVoFatal();
+        _handleVoFatal(event.text);
       }
     });
     _widthSubscription = player.widthStream.listen((event) {
@@ -396,11 +396,24 @@ class PlayerController extends BaseController
   Future<void> onVoFatal() async {}
 
   bool _voFatalHandled = false;
+  String? _lastVoFatalError;
 
-  void _handleVoFatal() async {
+  void _handleVoFatal(String errorText) async {
     if (_voFatalHandled) return;
     _voFatalHandled = true;
+    _lastVoFatalError = errorText;
     hwdecRetried = true;
+
+    // VO 驱动不存在（如 gpu-next），回退到安全 VO，防止无限崩溃循环
+    if (errorText.contains('not found')) {
+      final c = AppSettingsController.instance;
+      if (c.customPlayerOutput.value &&
+          c.videoOutputDriver.value.isNotEmpty) {
+        Log.w("VO 驱动 ${c.videoOutputDriver.value} 不存在，回退到 mediacodec_embed");
+        c.setVideoOutputDriver('mediacodec_embed');
+      }
+    }
+
     await recreatePlayer();
     await onVoFatal();
     _voFatalHandled = false;
