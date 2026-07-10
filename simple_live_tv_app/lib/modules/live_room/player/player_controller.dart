@@ -87,6 +87,7 @@ mixin PlayerMixin {
 
   void resetHwdecFallback() {
     hwdecRetried = false;
+    _hwFormatFallbackDone = false;
   }
 
   VideoRenderConfig _buildVideoRenderConfig() {
@@ -109,10 +110,12 @@ mixin PlayerMixin {
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
+    // 硬解用 mediacodec_embed 零拷贝，软解用 gpu VO（mediacodec_embed 不支持软解帧）
     final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
+    final vo = c.hardwareDecode.value ? 'mediacodec_embed' : 'gpu';
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
-      vo: Platform.isAndroid ? 'mediacodec_embed' : null,
+      vo: Platform.isAndroid ? vo : null,
       hwdec: Platform.isAndroid ? hwdec : null,
       androidAttachSurfaceAfterVideoParameters: true,
     );
@@ -354,9 +357,16 @@ class PlayerController extends BaseController
       // 必须从日志流中检测并主动重建播放器
       if (event.level == PlayerLogLevel.fatal &&
           (event.text.contains('No render context set') ||
-              event.text.contains('Error opening/initializing the selected video_out'))) {
+              event.text.contains('Error opening/initializing the selected video_out') ||
+              event.text.contains('Could not initialize video chain') ||
+              event.text.contains('Cannot convert decoder/filter output'))) {
         Log.e("检测到 VO 崩溃: ${event.text}", StackTrace.current);
         _handleVoFatal(event.text);
+      }
+      // mediacodec_embed 不支持软解帧上传，自动切 gpu VO 软解渲染
+      if (event.text.contains('no support for this hw format') ||
+          event.text.contains('hardware format not supported')) {
+        _handleHwFormatUnsupported();
       }
     });
     _widthSubscription = player.widthStream.listen((event) {
@@ -393,7 +403,19 @@ class PlayerController extends BaseController
   Future<void> onVoFatal() async {}
 
   bool _voFatalHandled = false;
+  bool _hwFormatFallbackDone = false;
   String? _lastVoFatalError;
+
+  void _handleHwFormatUnsupported() {
+    if (_hwFormatFallbackDone) return;
+    _hwFormatFallbackDone = true;
+    final p = player;
+    if (p is MediaKitPlayer) {
+      Log.w("mediacodec_embed 不支持软解帧，切换 vo=gpu + hwdec=no");
+      p.setProperty('vo', 'gpu');
+      p.setProperty('hwdec', 'no');
+    }
+  }
 
   void _handleVoFatal(String errorText) async {
     if (_voFatalHandled) return;
@@ -408,6 +430,16 @@ class PlayerController extends BaseController
           c.videoOutputDriver.value.isNotEmpty) {
         Log.w("VO 驱动 ${c.videoOutputDriver.value} 不存在，回退到 mediacodec_embed");
         c.setVideoOutputDriver('mediacodec_embed');
+      }
+    }
+
+    // 软解帧无法被 mediacodec_embed VO 渲染，切到 gpu VO 软解
+    if (errorText.contains('Cannot convert decoder/filter output') ||
+        errorText.contains('Could not initialize video chain')) {
+      final c = AppSettingsController.instance;
+      if (c.hardwareDecode.value) {
+        Log.w("视频链初始化失败（软解帧不兼容），切换 vo=gpu 软解渲染");
+        c.setHardwareDecode(false);
       }
     }
 
