@@ -33,13 +33,11 @@ class PlayerVideoConfig {
 /// 监听 player.recreateStream 以在播放器重建后自动重建渲染器。
 class PlayerVideo extends StatefulWidget {
   final BasePlayer player;
-  final GlobalKey<VideoState>? videoKey;
   final PlayerVideoConfig config;
 
   const PlayerVideo({
     super.key,
     required this.player,
-    this.videoKey,
     this.config = const PlayerVideoConfig(),
   });
 
@@ -52,10 +50,14 @@ class PlayerVideoState extends State<PlayerVideo> {
   StreamSubscription<void>? _vcReadySub;
   StreamSubscription<int>? _textureReadySub;
   int? _exoTextureId;
+  double? _aspectRatio;
+  BoxFit? _fit;
 
   @override
   void initState() {
     super.initState();
+    _aspectRatio = widget.config.aspectRatio;
+    _fit = widget.config.fit;
     _recreateSub = widget.player.recreateStream.listen((_) {
       if (mounted) {
         setState(() {
@@ -89,10 +91,9 @@ class PlayerVideoState extends State<PlayerVideo> {
   }
 
   void updateVideoDisplay({double? aspectRatio, BoxFit? fit}) {
-    widget.videoKey?.currentState?.update(
-      aspectRatio: aspectRatio,
-      fit: fit,
-    );
+    if (aspectRatio != null) _aspectRatio = aspectRatio;
+    if (fit != null) _fit = fit;
+    if (mounted) setState(() {});
   }
 
   @override
@@ -106,15 +107,15 @@ class PlayerVideoState extends State<PlayerVideo> {
         return const SizedBox.expand(child: ColoredBox(color: Colors.black));
       }
       return Video(
-        key: widget.videoKey,
+        key: ValueKey(vc),
         controller: vc,
         pauseUponEnteringBackgroundMode: widget.config.pauseOnBackground,
         resumeUponEnteringForegroundMode: widget.config.resumeOnForeground,
         controls: controls != null
             ? (VideoState state) => controls(state.context)
             : null,
-        aspectRatio: widget.config.aspectRatio,
-        fit: widget.config.fit,
+        aspectRatio: _aspectRatio,
+        fit: _fit ?? BoxFit.contain,
       );
     }
 
@@ -125,7 +126,7 @@ class PlayerVideoState extends State<PlayerVideo> {
       }
       final video = Center(
         child: AspectRatio(
-          aspectRatio: widget.config.aspectRatio ?? 16 / 9,
+          aspectRatio: _aspectRatio ?? 16 / 9,
           child: Texture(textureId: textureId),
         ),
       );

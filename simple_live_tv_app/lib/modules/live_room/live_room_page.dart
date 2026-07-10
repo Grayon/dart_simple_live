@@ -135,8 +135,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return Stack(
       children: [
         PlayerVideo(
+          key: controller.globalPlayerVideoKey,
           player: controller.player,
-          videoKey: controller.globalPlayerKey,
           config: PlayerVideoConfig(
             pauseOnBackground:
                 AppSettingsController.instance.playerAutoPause.value,

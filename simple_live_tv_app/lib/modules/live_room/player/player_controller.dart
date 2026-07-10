@@ -14,9 +14,10 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'base_player.dart';
 import 'exoplayer_player.dart';
 import 'mediakit_player.dart';
+import 'player_video.dart';
 
 mixin PlayerMixin {
-  GlobalKey<VideoState> globalPlayerKey = GlobalKey<VideoState>();
+  GlobalKey<PlayerVideoState> globalPlayerVideoKey = GlobalKey<PlayerVideoState>();
   GlobalKey globalDanmuKey = GlobalKey();
 
   static int _effectiveBufferSizeMb() {
@@ -110,9 +111,11 @@ mixin PlayerMixin {
         androidAttachSurfaceAfterVideoParameters: true,
       );
     }
-    // 硬解用 mediacodec_embed 零拷贝，软解用 gpu VO（mediacodec_embed 不支持软解帧）
+    // 默认 vo=gpu + hwdec=mediacodec（mediacodec-copy 路径）
+    // mediacodec_embed 是 Surface 直出零拷贝，高分辨率/部分芯片兼容性差
+    // gpu VO 走 OpenGL 渲染，兼容性好，2K/4K 硬解也能正常工作
     final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
-    final vo = c.hardwareDecode.value ? 'mediacodec_embed' : 'gpu';
+    final vo = c.hardwareDecode.value ? 'gpu' : 'gpu';
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? vo : null,
@@ -244,7 +247,7 @@ mixin PlayerStateMixin on PlayerMixin {
       boxFit = BoxFit.contain;
       aspectRatio = 4 / 3;
     }
-    globalPlayerKey.currentState?.update(
+    globalPlayerVideoKey.currentState?.updateVideoDisplay(
       aspectRatio: aspectRatio,
       fit: boxFit,
     );
