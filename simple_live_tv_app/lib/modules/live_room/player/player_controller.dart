@@ -99,14 +99,14 @@ mixin PlayerMixin {
         hwdec: c.videoHardwareDecoder.value.isNotEmpty
             ? c.videoHardwareDecoder.value
             : null,
-        androidAttachSurfaceAfterVideoParameters: false,
+        androidAttachSurfaceAfterVideoParameters: true,
       );
     }
     if (c.playerCompatMode.value) {
       return VideoRenderConfig(
         vo: Platform.isAndroid ? 'mediacodec_embed' : null,
         hwdec: Platform.isAndroid ? 'mediacodec' : null,
-        androidAttachSurfaceAfterVideoParameters: false,
+        androidAttachSurfaceAfterVideoParameters: true,
       );
     }
     final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
@@ -114,7 +114,7 @@ mixin PlayerMixin {
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? 'mediacodec_embed' : null,
       hwdec: Platform.isAndroid ? hwdec : null,
-      androidAttachSurfaceAfterVideoParameters: false,
+      androidAttachSurfaceAfterVideoParameters: true,
     );
   }
 

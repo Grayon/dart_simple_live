@@ -49,6 +49,7 @@ class PlayerVideo extends StatefulWidget {
 
 class PlayerVideoState extends State<PlayerVideo> {
   StreamSubscription<void>? _recreateSub;
+  StreamSubscription<void>? _vcReadySub;
   StreamSubscription<int>? _textureReadySub;
   int? _exoTextureId;
 
@@ -70,12 +71,19 @@ class PlayerVideoState extends State<PlayerVideo> {
           setState(() => _exoTextureId = id);
         }
       });
+    } else if (player is MediaKitPlayer) {
+      _vcReadySub = player.videoControllerReadyStream.listen((_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
     }
   }
 
   @override
   void dispose() {
     _recreateSub?.cancel();
+    _vcReadySub?.cancel();
     _textureReadySub?.cancel();
     super.dispose();
   }

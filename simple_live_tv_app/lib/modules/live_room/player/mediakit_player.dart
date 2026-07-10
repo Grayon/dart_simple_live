@@ -27,6 +27,10 @@ class MediaKitPlayer implements BasePlayer {
   final _recreateController = StreamController<void>.broadcast();
   Stream<void> get recreateStream => _recreateController.stream;
 
+  // videoController 就绪通知
+  final _videoControllerReadyController = StreamController<void>.broadcast();
+  Stream<void> get videoControllerReadyStream => _videoControllerReadyController.stream;
+
   List<StreamSubscription> _subscriptions = [];
 
   MediaKitPlayer(this._config)
@@ -52,6 +56,7 @@ class MediaKitPlayer implements BasePlayer {
             config.androidAttachSurfaceAfterVideoParameters,
       ),
     );
+    _videoControllerReadyController.add(null);
     _bindStreams();
   }
 
@@ -144,6 +149,7 @@ class MediaKitPlayer implements BasePlayer {
     await _completedController.close();
     await _logController.close();
     await _recreateController.close();
+    await _videoControllerReadyController.close();
   }
 
   @override
@@ -181,6 +187,7 @@ class MediaKitPlayer implements BasePlayer {
               renderConfig.androidAttachSurfaceAfterVideoParameters,
         ),
       );
+      _videoControllerReadyController.add(null);
     }
 
     // 重新绑定流
