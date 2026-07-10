@@ -99,25 +99,22 @@ mixin PlayerMixin {
         hwdec: c.videoHardwareDecoder.value.isNotEmpty
             ? c.videoHardwareDecoder.value
             : null,
-        androidAttachSurfaceAfterVideoParameters: true,
+        androidAttachSurfaceAfterVideoParameters: false,
       );
     }
     if (c.playerCompatMode.value) {
-      // 兼容模式：仍用 mediacodec 零拷贝（mediacodec-copy 在多数电视上 hwupload 失败）
       return VideoRenderConfig(
         vo: Platform.isAndroid ? 'mediacodec_embed' : null,
         hwdec: Platform.isAndroid ? 'mediacodec' : null,
-        androidAttachSurfaceAfterVideoParameters: true,
+        androidAttachSurfaceAfterVideoParameters: false,
       );
     }
-    // Android TV 默认使用 mediacodec 零拷贝（帧全程在 GPU Surface，不需要 hwupload）
-    // mediacodec-copy 在多数电视芯片上会因 hwupload 不支持而黑屏
     final hwdec = c.hardwareDecode.value ? 'mediacodec' : 'no';
     return VideoRenderConfig(
       enableHardwareAcceleration: c.hardwareDecode.value,
       vo: Platform.isAndroid ? 'mediacodec_embed' : null,
       hwdec: Platform.isAndroid ? hwdec : null,
-      androidAttachSurfaceAfterVideoParameters: true,
+      androidAttachSurfaceAfterVideoParameters: false,
     );
   }
 
