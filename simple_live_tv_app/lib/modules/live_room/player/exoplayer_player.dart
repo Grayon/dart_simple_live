@@ -39,6 +39,7 @@ class ExoPlayerPlayer implements BasePlayer {
   Map<String, dynamic>? _videoInfo;
   int _bufferedPositionMs = 0;
   int _currentPositionMs = 0;
+  String? _currentUrl;
 
   /// Texture 就绪通知（PlayerVideo 监听此流来重建渲染器）
   Stream<int> get textureReadyStream => _textureReadyController.stream;
@@ -235,6 +236,7 @@ class ExoPlayerPlayer implements BasePlayer {
   @override
   Future<void> open(String url, {Map<String, String>? headers}) async {
     if (_disposed) return;
+    _currentUrl = url;
     await _ensureCreated();
     await _methodChannel.invokeMethod('open', {
       'url': url,
@@ -398,9 +400,9 @@ class ExoPlayerPlayer implements BasePlayer {
         if (speed == null) return null;
         return speed.toString();
       case 'media-title':
-        return currentUrl?.split('/').last.split('?').first;
+        return _currentUrl?.split('/').last.split('?').first;
       case 'path':
-        return currentUrl;
+        return _currentUrl;
       default:
         return null;
     }
