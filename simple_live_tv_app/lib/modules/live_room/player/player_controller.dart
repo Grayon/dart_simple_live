@@ -86,6 +86,7 @@ mixin PlayerMixin {
 
   /// 硬解零拷贝失败后的重试标记（recreate 后重试 mediacodec，不再降级到 copy）
   bool hwdecRetried = false;
+  bool _hwFormatFallbackDone = false;
 
   void resetHwdecFallback() {
     hwdecRetried = false;
@@ -491,7 +492,6 @@ class PlayerController extends BaseController
   Future<void> onVoFatal() async {}
 
   bool _voFatalHandled = false;
-  bool _hwFormatFallbackDone = false;
   String? _lastVoFatalError;
 
   void _handleHwFormatUnsupported() {
