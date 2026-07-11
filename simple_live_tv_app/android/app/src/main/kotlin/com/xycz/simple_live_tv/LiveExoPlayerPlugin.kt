@@ -13,7 +13,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -24,7 +24,9 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
+import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /** 自定义 ExoPlayer 插件，针对直播流优化 */
 class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -255,12 +257,26 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val p = player ?: return
     currentUrl = url
 
-    // HTTP 数据源：合理超时 + 自定义 headers
-    val dataSourceFactory = DefaultHttpDataSource.Factory()
-      .setConnectTimeoutMs(5000)
-      .setReadTimeoutMs(8000)
-      .setAllowCrossProtocolRedirects(true)
-      .setDefaultRequestProperties(headers)
+    // HTTP 数据源：用 OkHttp 替代 DefaultHttpDataSource
+    // DefaultHttpDataSource 基于 HttpURLConnection，对 FLV 直播流的 chunked 长连接
+    // 处理有 bug（EOFException: \n not found: size=0 content=）
+    // OkHttp 对长连接和流式响应兼容性更好
+    val okHttpClient = OkHttpClient.Builder()
+      .connectTimeout(5, TimeUnit.SECONDS)
+      .readTimeout(8, TimeUnit.SECONDS)
+      .writeTimeout(8, TimeUnit.SECONDS)
+      .retryOnConnectionFailure(true)
+      .build()
+
+    val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+      .setDefaultRequestProperties(
+        HashMap<String, String>(headers).apply {
+          // 确保有合理的 User-Agent，部分 CDN 会拦截默认 Android 代理
+          if (!containsKey("User-Agent")) {
+            put("User-Agent", "Mozilla/5.0 (Linux; Android 14; TV) AppleWebKit/537.36")
+          }
+        }
+      )
 
     val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
       .setDataSourceFactory(dataSourceFactory)

@@ -80,6 +80,9 @@ mixin PlayerMixin {
     _playerInitialized = false;
     hwdecRetried = false;
     await oldPlayer.dispose();
+    // 新 player 的流需要重新绑定
+    rebindStreams();
+    resetHwdecFallback();
   }
 
   bool _playerInitialized = false;

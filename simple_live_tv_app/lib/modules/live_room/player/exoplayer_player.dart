@@ -41,6 +41,9 @@ class ExoPlayerPlayer implements BasePlayer {
   int _currentPositionMs = 0;
   String? _currentUrl;
 
+  /// 当前状态快照（由事件流驱动更新）
+  PlayerState _state = const PlayerState();
+
   /// Texture 就绪通知（PlayerVideo 监听此流来重建渲染器）
   Stream<int> get textureReadyStream => _textureReadyController.stream;
 
@@ -173,14 +176,34 @@ class ExoPlayerPlayer implements BasePlayer {
     final type = event['event'] as String?;
     switch (type) {
       case 'playing':
-        _playingController.add(event['value'] as bool? ?? false);
+        final isPlaying = event['value'] as bool? ?? false;
+        _state = PlayerState(
+          playing: isPlaying,
+          buffering: _state.buffering,
+          width: _state.width,
+          height: _state.height,
+        );
+        _playingController.add(isPlaying);
         break;
       case 'buffering':
-        _bufferingController.add(event['value'] as bool? ?? false);
+        final isBuffering = event['value'] as bool? ?? false;
+        _state = PlayerState(
+          playing: _state.playing,
+          buffering: isBuffering,
+          width: _state.width,
+          height: _state.height,
+        );
+        _bufferingController.add(isBuffering);
         break;
       case 'videoSize':
         final w = event['width'] as int?;
         final h = event['height'] as int?;
+        _state = PlayerState(
+          playing: _state.playing,
+          buffering: _state.buffering,
+          width: w,
+          height: h,
+        );
         if (w != null) _widthController.add(w);
         if (h != null) _heightController.add(h);
         // 异步拉取完整视频信息供 getProperty 使用
@@ -207,10 +230,7 @@ class ExoPlayerPlayer implements BasePlayer {
   }
 
   @override
-  PlayerState get state {
-    // ExoPlayer 状态由事件流驱动，这里返回空快照
-    return const PlayerState();
-  }
+  PlayerState get state => _state;
 
   @override
   Stream<bool> get playingStream => _playingController.stream;
@@ -280,6 +300,7 @@ class ExoPlayerPlayer implements BasePlayer {
     }
     _created = false;
     _textureId = null;
+    _state = const PlayerState();
     _recreateController.add(null);
   }
 
