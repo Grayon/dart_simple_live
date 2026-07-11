@@ -300,10 +300,12 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // DefaultHttpDataSource 基于 HttpURLConnection，对 FLV 直播流的 chunked 长连接
     // 处理有 bug（EOFException: \n not found: size=0 content=）
     // OkHttp 对长连接和流式响应兼容性更好
+    // 注意：readTimeout 必须设大（0=无限），直播流中间可能几秒没有新数据，
+    // 短超时会导致连接被断开，视频信息能解析但缓冲为0无法播放
     val okHttpClient = OkHttpClient.Builder()
       .connectTimeout(5, TimeUnit.SECONDS)
-      .readTimeout(8, TimeUnit.SECONDS)
-      .writeTimeout(8, TimeUnit.SECONDS)
+      .readTimeout(0, TimeUnit.MILLISECONDS)
+      .writeTimeout(0, TimeUnit.MILLISECONDS)
       .retryOnConnectionFailure(true)
       .build()
 
