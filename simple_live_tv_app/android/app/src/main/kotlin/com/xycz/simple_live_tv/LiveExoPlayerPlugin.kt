@@ -234,7 +234,7 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // 硬件解码器优先：c2.mtk / c2.qti / OMX.qcom / OMX.MTK 等排前面
         infos.sortedByDescending { info ->
           val name = info.name
-          val isHw = info.isHardwareAccelerated
+          val isHw = info.hardwareAccelerated
           val isVendorHw = isHw && (
             name.startsWith("c2.mtk") || name.startsWith("c2.qti") ||
             name.startsWith("OMX.qcom") || name.startsWith("OMX.MTK") ||
