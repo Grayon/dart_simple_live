@@ -265,17 +265,25 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
       .setDataSourceFactory(dataSourceFactory)
 
-    // 直播配置：targetOffset 2s，允许小幅变速追赶
-    val liveConfig = MediaItem.LiveConfiguration.Builder()
-      .setTargetOffsetMs(2000)
-      .setMaxPlaybackSpeed(1.04f)
-      .setMinPlaybackSpeed(0.96f)
-      .build()
+    // FLV 直播流不走 HLS/DASH LiveConfiguration，用普通 ProgressiveMediaSource
+    // LiveConfiguration 只对 HLS/DASH 有效，对 progressive FLV 反而导致缓冲异常
+    val isFlv = url.contains(".flv", ignoreCase = true) ||
+        url.contains("flv", ignoreCase = true)
 
-    val mediaItem = MediaItem.Builder()
-      .setUri(Uri.parse(url))
-      .setLiveConfiguration(liveConfig)
-      .build()
+    val mediaItem = if (isFlv) {
+      MediaItem.fromUri(Uri.parse(url))
+    } else {
+      MediaItem.Builder()
+        .setUri(Uri.parse(url))
+        .setLiveConfiguration(
+          MediaItem.LiveConfiguration.Builder()
+            .setTargetOffsetMs(2000)
+            .setMaxPlaybackSpeed(1.04f)
+            .setMinPlaybackSpeed(0.96f)
+            .build()
+        )
+        .build()
+    }
 
     val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
     p.setMediaSource(mediaSource)
