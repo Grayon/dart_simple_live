@@ -312,6 +312,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     'Error while decoding frame',
     'No render context set',
     'Failed to flush codec',
+    // ExoPlayer MediaCodec 错误（code: 4003 = DECODER_INIT_FAILED）
+    'MediaCodecVideoRenderer error',
+    'Decoder init failed',
+    'codec: 4003',
+    'code: 4003',
   ];
 
   @override

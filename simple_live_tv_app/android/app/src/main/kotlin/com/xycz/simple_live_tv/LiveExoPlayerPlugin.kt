@@ -17,6 +17,8 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -65,6 +67,19 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 "height" to format.height
               )
             )
+          }
+          // 输出选中的轨道和解码器信息，方便诊断解码器选择问题
+          val tracks = player?.currentTracks
+          tracks?.groups?.forEach { group ->
+            if (group.isSelected) {
+              val trackType = group.type
+              for (i in 0 until group.length) {
+                if (group.isTrackSelected(i)) {
+                  val fmt = group.getTrackFormat(i)
+                  Log.d("LiveExoPlayer", "Selected track: type=$trackType codec=${fmt.codecs} ${fmt.width}x${fmt.height}")
+                }
+              }
+            }
           }
         }
         Player.STATE_ENDED -> {
@@ -207,9 +222,33 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val entry = textureRegistry.createSurfaceProducer()
     textureEntry = entry
 
-    // 解码器工厂：启用 fallback，codec 失败时尝试其他 decoder（包括软解）
+    // 解码器工厂：启用 fallback + 自定义 MediaCodecSelector 强制优先硬件解码器
+    // 默认排序可能把 Google 软解 (c2.android.avc.decoder, max 2048x2048) 排在
+    // MTK 硬解 (c2.mtk.avc.decoder, max 4096x2304) 前面，导致 2K/4K 初始化失败
     val renderersFactory = DefaultRenderersFactory(appContext)
       .setEnableDecoderFallback(true)
+      .setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+        val infos = MediaCodecUtil.getDecoderInfos(
+          mimeType, requiresSecureDecoder, requiresTunnelingDecoder
+        )
+        // 硬件解码器优先：c2.mtk / c2.qti / OMX.qcom / OMX.MTK 等排前面
+        infos.sortedByDescending { info ->
+          val name = info.name
+          val isHw = info.isHardwareAccelerated
+          val isVendorHw = isHw && (
+            name.startsWith("c2.mtk") || name.startsWith("c2.qti") ||
+            name.startsWith("OMX.qcom") || name.startsWith("OMX.MTK") ||
+            name.startsWith("OMX.hisi") || name.startsWith("c2.exynos")
+          )
+          val isGoogleSw = name.startsWith("c2.android.") || name.startsWith("OMX.google.")
+          when {
+            isVendorHw -> 3
+            isHw -> 2
+            !isGoogleSw -> 1
+            else -> 0
+          }
+        }
+      }
 
     // 缓冲控制：直播流小缓冲，低延迟
     val loadControl = DefaultLoadControl.Builder()
