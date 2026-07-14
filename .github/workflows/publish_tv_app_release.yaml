@@ -23,6 +23,13 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      # 从 Tag 同步版本号到 pubspec.yaml 和 tv_app_version.json
+      - name: Sync version from tag
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          python3 .github/scripts/sync_version.py --tag "$TAG" --pubspec simple_live_tv_app/pubspec.yaml --version-json assets/tv_app_version.json
+
       #APK签名设置
       - name: Decode Android keystore
         id: android_tv_keystore
