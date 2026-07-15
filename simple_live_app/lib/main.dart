@@ -20,6 +20,7 @@ import 'package:simple_live_app/app/utils/listen_fourth_button.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/models/db/history.dart';
+import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/other/debug_log_page.dart';
 import 'package:simple_live_app/routes/app_pages.dart';
 import 'package:simple_live_app/routes/route_path.dart';
@@ -48,6 +49,7 @@ void main() async {
   );
   //初始化服务
   await initServices();
+  initAppLifecycleChannel();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   //设置状态栏为透明
   SystemUiOverlayStyle systemUiOverlayStyle = const SystemUiOverlayStyle(
@@ -164,6 +166,31 @@ void initCoreLog() {
         Log.logPrint(msg);
     }
   };
+}
+
+/// 桌面端（macOS）应用退出通道：
+/// 原生侧在 applicationShouldTerminate 中通过此通道通知 Flutter，
+/// Flutter 释放 mpv 播放器后回复，原生侧再继续退出，避免 mpv core 线程
+/// 在内存被 munmap 后仍在运行导致 SIGSEGV。
+void initAppLifecycleChannel() {
+  if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+    return;
+  }
+  const channel = MethodChannel('com.xycz.simpleLiveApp/lifecycle');
+  channel.setMethodCallHandler((call) async {
+    if (call.method == 'onApplicationWillTerminate') {
+      try {
+        if (Get.isRegistered<LiveRoomController>()) {
+          final controller = Get.find<LiveRoomController>();
+          await controller.disposePlayerForTermination();
+        }
+      } catch (e) {
+        Log.e("退出时释放播放器失败: $e", StackTrace.current);
+      }
+      return null;
+    }
+    return null;
+  });
 }
 
 class MyApp extends StatelessWidget {
