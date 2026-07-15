@@ -130,16 +130,29 @@ git tag tv_v1.6.7 && git push origin tv_v1.6.7
 
 ## Git 操作注意事项
 
-本项目的 `.git/` 目录在沙箱环境中受保护，执行 git 写操作（commit、push、checkout 等）时**必须**使用 `dangerouslyDisableSandbox: true` 参数，否则会报 `Operation not permitted` 错误。
+本项目的 `.git/` 目录在沙箱环境中受保护，执行 git 写操作（commit、push、checkout、tag、pull、add 等）时，**必须在 Bash toolcall 中添加 `dangerouslyDisableSandbox: true` 参数**，否则会报 `Operation not permitted` 错误。
 
-```bash
-# 示例：需要禁用沙箱的 git 操作
-git checkout <branch>      # 创建 index.lock
-git commit                 # 写入 .git/
-git push                   # 网络 + .git/
-git tag                    # 写入 .git/refs/tags/
-git pull                   # 写入 .git/
+这是 toolcall 层面的参数，不是命令行参数。每次调用 Bash 工具执行 git 写操作时都必须带上：
+
+```json
+{
+  "command": "git commit -m \"...\"",
+  "dangerouslyDisableSandbox": true
+}
 ```
+
+需要加此参数的 git 操作（非穷举）：
+- `git add` — 创建 index.lock
+- `git commit` — 写入 .git/
+- `git push` — 网络 + .git/
+- `git tag` — 写入 .git/refs/tags/
+- `git pull` — 写入 .git/
+- `git checkout` — 创建 index.lock
+- `git branch` — 写入 .git/refs/
+- `git merge` / `git rebase` — 写入 .git/
+- `git stash` — 写入 .git/
+
+纯读操作（如 `git status`、`git log`、`git diff`、`git branch --show-current`）不需要此参数。
 
 ## 播放器架构 (feat/replace-player 分支)
 
