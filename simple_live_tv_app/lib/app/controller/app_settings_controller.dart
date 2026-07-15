@@ -79,9 +79,11 @@ extension LiveBufferModeX on LiveBufferMode {
 /// 播放器引擎
 /// - 0 [mpv]  media_kit (mpv)，功能最全，支持精细调优
 /// - 1 [exoPlayer]  ExoPlayer (Media3)，Android 原生，系统兼容性更好
+/// - 2 [ijk]  IJKPlayer (FFmpeg)，格式兼容性好，适合老设备/特殊格式
 enum PlayerEngine {
   mpv,
   exoPlayer,
+  ijk,
 }
 
 extension PlayerEngineX on PlayerEngine {
@@ -92,6 +94,8 @@ extension PlayerEngineX on PlayerEngine {
         return "mpv (功能全)";
       case PlayerEngine.exoPlayer:
         return "ExoPlayer (系统兼容好)";
+      case PlayerEngine.ijk:
+        return "IJKPlayer (格式兼容好)";
     }
   }
 }

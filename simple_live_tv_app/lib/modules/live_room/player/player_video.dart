@@ -5,6 +5,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'base_player.dart';
 import 'exoplayer_player.dart';
+import 'ijk_player.dart';
 import 'mediakit_player.dart';
 
 /// 视频渲染组件配置
@@ -73,6 +74,13 @@ class PlayerVideoState extends State<PlayerVideo> {
           setState(() => _exoTextureId = id);
         }
       });
+    } else if (player is IjkPlayer) {
+      _exoTextureId = player.textureId;
+      _textureReadySub = player.textureReadyStream.listen((id) {
+        if (mounted) {
+          setState(() => _exoTextureId = id);
+        }
+      });
     } else if (player is MediaKitPlayer) {
       _vcReadySub = player.videoControllerReadyStream.listen((_) {
         if (mounted) {
@@ -88,6 +96,12 @@ class PlayerVideoState extends State<PlayerVideo> {
     _vcReadySub?.cancel();
     _textureReadySub?.cancel();
     super.dispose();
+  }
+
+  int? _getTextureId(BasePlayer player) {
+    if (player is ExoPlayerPlayer) return player.textureId;
+    if (player is IjkPlayer) return player.textureId;
+    return null;
   }
 
   void updateVideoDisplay({double? aspectRatio, BoxFit? fit}) {
@@ -119,8 +133,8 @@ class PlayerVideoState extends State<PlayerVideo> {
       );
     }
 
-    if (player is ExoPlayerPlayer) {
-      final textureId = _exoTextureId ?? player.textureId;
+    if (player is ExoPlayerPlayer || player is IjkPlayer) {
+      final textureId = _exoTextureId ?? _getTextureId(player);
       if (textureId == null) {
         return const SizedBox.expand(child: ColoredBox(color: Colors.black));
       }

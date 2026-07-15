@@ -16,3 +16,10 @@
 
 # 自定义插件
 -keep class com.xycz.simple_live_tv.LiveExoPlayerPlugin { *; }
+-keep class com.xycz.simple_live_tv.LiveIjkPlayerPlugin { *; }
+
+# IJKPlayer
+-keep class tv.danmaku.ijk.media.player.** { *; }
+-keep interface tv.danmaku.ijk.media.player.** { *; }
+-dontwarn tv.danmaku.ijk.media.player.**
+-keep class tv.danmaku.ijk.media.** { *; }

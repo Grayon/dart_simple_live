@@ -1,0 +1,411 @@
+package com.xycz.simple_live_tv
+
+import android.content.Context
+import android.media.MediaCodecList
+import android.net.Uri
+import android.os.Build
+import android.util.Log
+import android.view.Surface
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import io.flutter.view.TextureRegistry
+import tv.danmaku.ijk.media.player.IjkMediaPlayer
+import tv.danmaku.ijk.media.player.IjkTimedText
+import tv.danmaku.ijk.media.player.IMediaPlayer
+import java.io.File
+
+/** 自定义 IJKPlayer 插件，基于 FFmpeg，格式兼容性好 */
+class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+
+    private lateinit var channel: MethodChannel
+    private lateinit var eventChannel: EventChannel
+    private lateinit var textureRegistry: TextureRegistry
+    private lateinit var appContext: Context
+
+    private var player: IjkMediaPlayer? = null
+    private var textureEntry: TextureRegistry.SurfaceProducer? = null
+    private var eventSink: EventChannel.EventSink? = null
+    private var currentUrl: String? = null
+
+    // 播放统计
+    private var totalDroppedFrames: Int = 0
+
+    private val playerListener = object : IMediaPlayer.OnPreparedListener,
+        IMediaPlayer.OnCompletionListener,
+        IMediaPlayer.OnErrorListener,
+        IMediaPlayer.OnVideoSizeChangedListener,
+        IMediaPlayer.OnBufferingUpdateListener,
+        IMediaPlayer.OnInfoListener {
+
+        override fun onPrepared(mp: IMediaPlayer?) {
+            eventSink?.success(mapOf("event" to "buffering", "value" to false))
+            eventSink?.success(mapOf("event" to "playing", "value" to true))
+            val w = mp?.videoWidth ?: 0
+            val h = mp?.videoHeight ?: 0
+            if (w > 0 && h > 0) {
+                eventSink?.success(
+                    mapOf(
+                        "event" to "videoSize",
+                        "width" to w,
+                        "height" to h
+                    )
+                )
+            }
+        }
+
+        override fun onCompletion(mp: IMediaPlayer?) {
+            eventSink?.success(mapOf("event" to "completed"))
+        }
+
+        override fun onError(mp: IMediaPlayer?, what: Int, extra: Int): Boolean {
+            val msg = "IJKPlayer error (what=$what, extra=$extra)"
+            Log.e("LiveIjkPlayer", msg)
+            eventSink?.success(
+                mapOf(
+                    "event" to "error",
+                    "message" to msg,
+                    "errorCode" to what
+                )
+            )
+            return true
+        }
+
+        override fun onVideoSizeChanged(
+            mp: IMediaPlayer?,
+            width: Int,
+            height: Int,
+            sarNum: Int,
+            sarDen: Int
+        ) {
+            if (width > 0 && height > 0) {
+                eventSink?.success(
+                    mapOf(
+                        "event" to "videoSize",
+                        "width" to width,
+                        "height" to height
+                    )
+                )
+            }
+        }
+
+        override fun onBufferingUpdate(mp: IMediaPlayer?, percent: Int) {
+            // IJK 的 buffering 回调不需要推送状态，播放状态由 onPrepared/onError 驱动
+        }
+
+        override fun onInfo(mp: IMediaPlayer?, what: Int, extra: Int): Boolean {
+            when (what) {
+                IMediaPlayer.MEDIA_INFO_BUFFERING_START -> {
+                    eventSink?.success(mapOf("event" to "buffering", "value" to true))
+                }
+                IMediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                    eventSink?.success(mapOf("event" to "buffering", "value" to false))
+                }
+                IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START -> {
+                    eventSink?.success(mapOf("event" to "playing", "value" to true))
+                }
+            }
+            return true
+        }
+    }
+
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        appContext = binding.applicationContext
+        textureRegistry = binding.textureRegistry
+
+        // 加载 native 库
+        try {
+            IjkMediaPlayer.loadLibrariesOnce(null)
+            IjkMediaPlayer.native_profileBegin("libijkplayer.so")
+        } catch (e: Exception) {
+            Log.e("LiveIjkPlayer", "Failed to load IJK libraries", e)
+        }
+
+        channel = MethodChannel(binding.binaryMessenger, "com.xycz.simple_live_tv/ijk_player")
+        channel.setMethodCallHandler(this)
+
+        eventChannel = EventChannel(binding.binaryMessenger, "com.xycz.simple_live_tv/ijk_player_events")
+        eventChannel.setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
+                    eventSink = sink
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    eventSink = null
+                }
+            }
+        )
+    }
+
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        releasePlayer()
+        channel.setMethodCallHandler(null)
+        eventChannel.setStreamHandler(null)
+    }
+
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "create" -> {
+                val logLevel = call.argument<Int>("logLevel") ?: 5
+                val bufferSize = call.argument<Int>("bufferSize") ?: (32 * 1024 * 1024)
+                val textureId = createPlayer(logLevel, bufferSize)
+                result.success(mapOf("textureId" to textureId))
+            }
+            "open" -> {
+                val url = call.argument<String>("url") ?: return result.error("NO_URL", "No URL", null)
+                val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+                open(url, headers)
+                result.success(null)
+            }
+            "stop" -> {
+                player?.reset()
+                eventSink?.success(mapOf("event" to "playing", "value" to false))
+                result.success(null)
+            }
+            "dispose" -> {
+                releasePlayer()
+                result.success(null)
+            }
+            "setProperty" -> {
+                val key = call.argument<String>("key") ?: ""
+                val value = call.argument<String>("value") ?: ""
+                setProperty(key, value)
+                result.success(null)
+            }
+            "getVideoInfo" -> {
+                val p = player
+                if (p == null) {
+                    result.success(null)
+                } else {
+                    result.success(
+                        mapOf(
+                            "width" to p.videoWidth,
+                            "height" to p.videoHeight,
+                            "frameRate" to 0,
+                            "codec" to getVideoCodec(),
+                            "bitrate" to 0,
+                            "audioCodec" to "",
+                            "audioBitrate" to 0,
+                            "audioSampleRate" to 0,
+                            "audioChannels" to 0,
+                            "droppedFrames" to totalDroppedFrames,
+                            "isPlaying" to p.isPlaying,
+                            "bufferedPosition" to 0,
+                            "currentPosition" to p.currentPosition,
+                            "contentDuration" to p.duration,
+                            "playbackSpeed" to p.playbackSpeed,
+                            "hwDecoder" to if (p.isEnableMediaCodec) "mediacodec" else "ffmpeg",
+                        )
+                    )
+                }
+            }
+            "getCodecInfo" -> {
+                result.success(dumpCodecInfo())
+            }
+            "getDeviceHwInfo" -> {
+                result.success(dumpDeviceHwInfo())
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun createPlayer(logLevel: Int, bufferSize: Int): Long {
+        releasePlayer()
+
+        // 创建 Flutter Texture 入口
+        val entry = textureRegistry.createSurfaceProducer()
+        textureEntry = entry
+
+        val p = IjkMediaPlayer()
+
+        // 日志级别
+        val ijkLogLevel = when (logLevel) {
+            0 -> IjkMediaPlayer.IJK_LOG_SILENT
+            1 -> IjkMediaPlayer.IJK_LOG_ERROR
+            2 -> IjkMediaPlayer.IJK_LOG_ERROR
+            3 -> IjkMediaPlayer.IJK_LOG_WARN
+            4 -> IjkMediaPlayer.IJK_LOG_INFO
+            5 -> IjkMediaPlayer.IJK_LOG_DEBUG
+            6 -> IjkMediaPlayer.IJK_LOG_VERBOSE
+            else -> IjkMediaPlayer.IJK_LOG_INFO
+        }
+        p.setLogLevel(ijkLogLevel)
+
+        // 缓冲参数
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1)
+
+        // 直播流优化：不自动暂停、不缓存到本地
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "nobuffer")
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
+
+        // 硬件解码
+        p.setEnableMediaCodec(true)
+        p.setEnableMediaCodecAutoRotate(false)
+
+        // 绑定监听器
+        p.setOnPreparedListener(playerListener)
+        p.setOnCompletionListener(playerListener)
+        p.setOnErrorListener(playerListener)
+        p.setOnVideoSizeChangedListener(playerListener)
+        p.setOnBufferingUpdateListener(playerListener)
+        p.setOnInfoListener(playerListener)
+
+        player = p
+
+        // 绑定 Surface
+        entry.surface?.let { surface ->
+            p.setSurface(surface)
+        }
+
+        // Surface 重建时重新绑定
+        entry.setCallback(
+            object : TextureRegistry.SurfaceProducer.Callback {
+                override fun onSurfaceCreated() {
+                    entry.surface?.let { surface ->
+                        player?.setSurface(surface)
+                    }
+                }
+
+                override fun onSurfaceDestroyed() {
+                    player?.setSurface(null)
+                }
+            }
+        )
+
+        return entry.id()
+    }
+
+    private fun open(url: String, headers: Map<String, String>) {
+        val p = player ?: return
+        currentUrl = url
+        p.reset()
+
+        // 设置 HTTP 请求头
+        if (headers.isNotEmpty()) {
+            val sb = StringBuilder()
+            for ((key, value) in headers) {
+                sb.append("$key: $value\r\n")
+            }
+            p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "headers", sb.toString())
+        }
+
+        try {
+            p.setDataSource(appContext, Uri.parse(url))
+            p.prepareAsync()
+        } catch (e: Exception) {
+            Log.e("LiveIjkPlayer", "Failed to open URL: $url", e)
+            eventSink?.success(
+                mapOf(
+                    "event" to "error",
+                    "message" to "Failed to open: ${e.message}",
+                    "errorCode" to -1
+                )
+            )
+        }
+    }
+
+    private fun setProperty(key: String, value: String) {
+        val p = player ?: return
+        when (key) {
+            "volume" -> {
+                val v = value.toFloatOrNull() ?: 1.0f
+                p.setVolume(v, v)
+            }
+            "playback-speed" -> {
+                val speed = value.toFloatOrNull() ?: 1.0f
+                p.playbackSpeed = speed
+            }
+        }
+    }
+
+    private fun getVideoCodec(): String {
+        // IJKPlayer 不直接暴露 codec 名称，通过 MediaCodecList 查询
+        return ""
+    }
+
+    private fun dumpCodecInfo(): Map<String, Any> {
+        val result = mutableMapOf<String, Any>()
+        val codecsList = mutableListOf<Map<String, Any>>()
+        try {
+            val codecList = MediaCodecList(MediaCodecList.ALL_CODECS)
+            val videoDecoders = codecList.codecInfos.filter { info ->
+                !info.isEncoder && info.supportedTypes.any { it.startsWith("video/") }
+            }.sortedBy { it.name }
+            for (info in videoDecoders) {
+                codecsList.add(
+                    mapOf(
+                        "name" to info.name,
+                        "isHardwareAccelerated" to info.isHardwareAccelerated,
+                        "supportedTypes" to info.supportedTypes.toList(),
+                    )
+                )
+            }
+            result["videoDecoders"] = codecsList
+            result["totalDecoderCount"] = codecsList.size
+        } catch (e: Exception) {
+            result["error"] = (e.message ?: "Unknown error")
+        }
+        return result
+    }
+
+    private fun dumpDeviceHwInfo(): Map<String, Any> {
+        val result = mutableMapOf<String, Any>()
+        try {
+            val cpuInfo = File("/proc/cpuinfo").readText()
+            val cpuMap = mutableMapOf<String, String>()
+            cpuInfo.lines().forEach { line ->
+                val idx = line.indexOf(':')
+                if (idx > 0) {
+                    val key = line.substring(0, idx).trim()
+                    val value = line.substring(idx + 1).trim()
+                    if (key.isNotEmpty()) cpuMap[key] = value
+                }
+            }
+            result["cpuInfo"] = cpuMap
+        } catch (e: Exception) {
+            result["cpuInfoError"] = (e.message ?: "Unknown")
+        }
+        result["buildInfo"] = mapOf(
+            "MANUFACTURER" to Build.MANUFACTURER,
+            "MODEL" to Build.MODEL,
+            "SDK_INT" to Build.VERSION.SDK_INT,
+            "RELEASE" to Build.VERSION.RELEASE,
+            "SUPPORTED_ABIS" to Build.SUPPORTED_ABIS.toList(),
+        )
+        try {
+            val memInfo = File("/proc/meminfo").readText()
+            val memMap = mutableMapOf<String, String>()
+            memInfo.lines().forEach { line ->
+                val idx = line.indexOf(':')
+                if (idx > 0) {
+                    memMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+                }
+            }
+            result["memInfo"] = memMap
+        } catch (_: Exception) {}
+        return result
+    }
+
+    private fun releasePlayer() {
+        player?.let {
+            it.setOnPreparedListener(null)
+            it.setOnCompletionListener(null)
+            it.setOnErrorListener(null)
+            it.setOnVideoSizeChangedListener(null)
+            it.setOnInfoListener(null)
+            it.reset()
+            it.release()
+        }
+        player = null
+        textureEntry?.release()
+        textureEntry = null
+        currentUrl = null
+    }
+}

@@ -75,4 +75,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
+
+    // IJKPlayer (FFmpeg) 播放器
+    implementation("tv.danmaku.ijk.media:ijkplayer-java:0.8.8")
+    implementation("tv.danmaku.ijk.media:ijkplayer-arm64:0.8.8")
+    implementation("tv.danmaku.ijk.media:ijkplayer-armv7a:0.8.8")
+    implementation("tv.danmaku.ijk.media:ijkplayer-x86_64:0.8.8")
 }

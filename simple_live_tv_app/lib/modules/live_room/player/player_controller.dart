@@ -14,6 +14,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'base_player.dart';
 import 'exoplayer_player.dart';
+import 'ijk_player.dart';
 import 'mediakit_player.dart';
 import 'player_video.dart';
 
@@ -45,6 +46,8 @@ mixin PlayerMixin {
         return ExoPlayerPlayer(config);
       case PlayerEngine.mpv:
         return MediaKitPlayer(config);
+      case PlayerEngine.ijk:
+        return IjkPlayer(config);
     }
   }
 
@@ -75,6 +78,9 @@ mixin PlayerMixin {
         break;
       case PlayerEngine.mpv:
         _player = MediaKitPlayer(config);
+        break;
+      case PlayerEngine.ijk:
+        _player = IjkPlayer(config);
         break;
     }
     _playerInitialized = false;
@@ -257,6 +263,12 @@ mixin PlayerMixin {
 
       await p.setProperty('audio-stream-silence', 'yes');
     } else if (p is ExoPlayerPlayer) {
+      if (!_playerInitialized) {
+        _playerInitialized = true;
+        // 提前创建原生播放器和 Texture，确保 open 前 Surface 已就绪
+        await p.ensureCreatedForRender();
+      }
+    } else if (p is IjkPlayer) {
       if (!_playerInitialized) {
         _playerInitialized = true;
         // 提前创建原生播放器和 Texture，确保 open 前 Surface 已就绪

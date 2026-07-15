@@ -147,6 +147,7 @@ class SettingsPage extends GetView<SettingsController> {
             items: const {
               0: "mpv (功能全)",
               1: "ExoPlayer (系统兼容好)",
+              2: "IJKPlayer (格式兼容好)",
             },
             value: AppSettingsController.instance.playerEngine.value.index,
             onChanged: (e) {
