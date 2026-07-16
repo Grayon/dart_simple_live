@@ -252,6 +252,22 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOnBufferingUpdateListener(playerListener)
         p.setOnInfoListener(playerListener)
 
+        // MediaCodec 解码器选择回调：native 层从流中解析出实际 mime type 后回调，
+        // 返回硬件解码器名称强制硬解（返回 null 则 IJK 自动选择，会回退到 FFmpeg）。
+        // 这同时解决了两个问题：
+        // 1. 诊断：能看到流的实际 mime type（不再依赖 logcat）
+        // 2. 修复：直接返回硬件解码器名称，绕过 video-mime-type 匹配逻辑
+        p.setOnMediaCodecSelectListener { _, mimeType, profile, level ->
+            val codecName = selectHardwareCodec(mimeType)
+            eventSink?.success(
+                mapOf(
+                    "event" to "nativeLog",
+                    "message" to "onMediaCodecSelect: mime=$mimeType profile=$profile level=$level -> $codecName"
+                )
+            )
+            codecName
+        }
+
         player = p
 
         // 绑定 Surface
@@ -437,6 +453,34 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> "ffmpeg"
             IjkMediaPlayer.FFP_PROPV_DECODER_VIDEOTOOLBOX -> "videotoolbox"
             else -> ""
+        }
+    }
+
+    /**
+     * 根据 native 层回调的实际 mime type，查找设备上对应的硬件解码器名称并返回。
+     * 返回 null 则 IJK 自动选择（通常会回退到 FFmpeg 软解）。
+     *
+     * 这样做绕过了 video-mime-type 选项的 strcmp 匹配逻辑（该 fork 无 NULL 保护，
+     * 不设 video-mime-type 时必定失败回退），直接指定硬件解码器名称。
+     */
+    private fun selectHardwareCodec(mimeType: String?): String? {
+        if (mimeType.isNullOrEmpty()) return null
+        try {
+            val codecList = MediaCodecList(MediaCodecList.ALL_CODECS)
+            // 优先选择硬件解码器（isHardwareAccelerated），且匹配 mime type
+            val hwCodec = codecList.codecInfos.firstOrNull { info ->
+                !info.isEncoder &&
+                    info.isHardwareAccelerated &&
+                    info.supportedTypes.contains(mimeType)
+            }
+            if (hwCodec != null) {
+                return hwCodec.name
+            }
+            // 没有硬件解码器，返回 null 让 IJK 自行处理（会回退软解）
+            return null
+        } catch (e: Exception) {
+            Log.e("LiveIjkPlayer", "selectHardwareCodec failed for $mimeType", e)
+            return null
         }
     }
 
