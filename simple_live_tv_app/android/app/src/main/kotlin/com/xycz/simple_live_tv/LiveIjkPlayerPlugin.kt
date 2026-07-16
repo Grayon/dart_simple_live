@@ -5,14 +5,12 @@ import android.media.MediaCodecList
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
-import tv.danmaku.ijk.media.player.IjkTimedText
 import tv.danmaku.ijk.media.player.IMediaPlayer
 import java.io.File
 
@@ -183,9 +181,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         mapOf(
                             "width" to p.videoWidth,
                             "height" to p.videoHeight,
-                            "frameRate" to 0,
-                            "codec" to getVideoCodec(),
-                            "bitrate" to 0,
+                            "frameRate" to p.videoOutputFramesPerSecond,
+                            "codec" to p.videoDecoder,
+                            "bitrate" to p.bitRate,
                             "audioCodec" to "",
                             "audioBitrate" to 0,
                             "audioSampleRate" to 0,
@@ -195,8 +193,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                             "bufferedPosition" to 0,
                             "currentPosition" to p.currentPosition,
                             "contentDuration" to p.duration,
-                            "playbackSpeed" to p.playbackSpeed,
-                            "hwDecoder" to if (p.isEnableMediaCodec) "mediacodec" else "ffmpeg",
+                            "playbackSpeed" to p.speed,
+                            "hwDecoder" to if (p.videoDecoder.contains("mediacodec")) "mediacodec" else "ffmpeg",
                         )
                     )
                 }
@@ -231,23 +229,23 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             6 -> IjkMediaPlayer.IJK_LOG_VERBOSE
             else -> IjkMediaPlayer.IJK_LOG_INFO
         }
-        p.setLogLevel(ijkLogLevel)
+        p.native_setLogLevel(ijkLogLevel)
 
         // 缓冲参数
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
         // 直播流优化：不自动暂停、不缓存到本地
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "nobuffer")
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
 
-        // 硬件解码
-        p.setEnableMediaCodec(true)
-        p.setEnableMediaCodecAutoRotate(false)
+        // 硬件解码（通过 setOption 开启 mediacodec）
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
 
         // 绑定监听器
         p.setOnPreparedListener(playerListener)
@@ -320,14 +318,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             "playback-speed" -> {
                 val speed = value.toFloatOrNull() ?: 1.0f
-                p.playbackSpeed = speed
+                p.setSpeed(speed)
             }
         }
-    }
-
-    private fun getVideoCodec(): String {
-        // IJKPlayer 不直接暴露 codec 名称，通过 MediaCodecList 查询
-        return ""
     }
 
     private fun dumpCodecInfo(): Map<String, Any> {
