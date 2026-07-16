@@ -732,7 +732,11 @@ void showVideoInfo(LiveRoomController controller) {
       ],
     ),
   ).then((value) {
-    controller.focusNode.requestFocus();
+    // 视频信息面板是从设置面板内部打开的子对话框，
+    // 关闭时不能把焦点还给底层 KeyboardListener，
+    // 否则设置面板会失去焦点导致无法操作。
+    // 不调用 controller.focusNode.requestFocus()，
+    // 让 Flutter 焦点管理器自动将焦点恢复到设置面板。
   });
 }
 

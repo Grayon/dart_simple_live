@@ -182,7 +182,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                             "width" to p.videoWidth,
                             "height" to p.videoHeight,
                             "frameRate" to p.videoOutputFramesPerSecond,
-                            "codec" to p.videoDecoder,
+                            "codec" to decoderName(p.videoDecoder),
                             "bitrate" to p.bitRate,
                             "audioCodec" to "",
                             "audioBitrate" to 0,
@@ -193,8 +193,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                             "bufferedPosition" to 0,
                             "currentPosition" to p.currentPosition,
                             "contentDuration" to p.duration,
-                            "playbackSpeed" to p.speed,
-                            "hwDecoder" to if (p.videoDecoder.contains("mediacodec")) "mediacodec" else "ffmpeg",
+                            "playbackSpeed" to p.getSpeed(0f),
+                            "hwDecoder" to if (p.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC) "mediacodec" else "ffmpeg",
                         )
                     )
                 }
@@ -229,7 +229,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             6 -> IjkMediaPlayer.IJK_LOG_VERBOSE
             else -> IjkMediaPlayer.IJK_LOG_INFO
         }
-        p.native_setLogLevel(ijkLogLevel)
+        IjkMediaPlayer.native_setLogLevel(ijkLogLevel)
 
         // 缓冲参数
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
@@ -384,6 +384,15 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             result["memInfo"] = memMap
         } catch (_: Exception) {}
         return result
+    }
+
+    private fun decoderName(decoder: Int): String {
+        return when (decoder) {
+            IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC -> "mediacodec"
+            IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> "ffmpeg"
+            IjkMediaPlayer.FFP_PROPV_DECODER_VIDEOTOOLBOX -> "videotoolbox"
+            else -> ""
+        }
     }
 
     private fun releasePlayer() {
