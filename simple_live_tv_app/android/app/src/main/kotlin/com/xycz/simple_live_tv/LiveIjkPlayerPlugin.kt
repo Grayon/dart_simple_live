@@ -27,6 +27,11 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var eventSink: EventChannel.EventSink? = null
     private var currentUrl: String? = null
 
+    // logcat 捕获：将 native 层 IJK 日志（如 amc: video_mime_type error）
+    // 转发到 Dart 层写入日志文件，方便诊断硬解问题
+    private var logcatProcess: Process? = null
+    private var logcatThread: Thread? = null
+
     // 播放统计
     private var totalDroppedFrames: Int = 0
     // 缓存大小（create 时保存，open reset 后重新应用选项时使用）
@@ -233,6 +238,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
         IjkMediaPlayer.native_setLogLevel(ijkLogLevel)
 
+        // 启动 logcat 捕获，将 native 层 IJK 日志转发到 Dart 层
+        startLogcatCapture()
+
         bufferSizeBytes = bufferSize
         applyPlayerOptions(p, bufferSize)
 
@@ -433,6 +441,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun releasePlayer() {
+        stopLogcatCapture()
         player?.let {
             it.setOnPreparedListener(null)
             it.setOnCompletionListener(null)
@@ -446,5 +455,74 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         textureEntry?.release()
         textureEntry = null
         currentUrl = null
+    }
+
+    /**
+     * 启动 logcat 捕获，将 native 层 IJK 日志（如 amc: video_mime_type error、
+     * MediaCodec 初始化失败等）通过 EventChannel 转发到 Dart 层写入日志文件。
+     *
+     * 这些日志由 C 层直接输出到 Android logcat，不经过 Java/Kotlin 层，
+     * 之前无法被 Dart 层的 Log 系统捕获，导致硬解失败时无法诊断。
+     */
+    private fun startLogcatCapture() {
+        stopLogcatCapture()
+        try {
+            // 只捕获 IJK 相关 tag，避免日志量过大
+            val process = Runtime.getRuntime().exec(
+                arrayOf("logcat", "-c")
+            )
+            process.waitFor()
+
+            val logcatProcess = Runtime.getRuntime().exec(
+                arrayOf(
+                    "logcat", "-v", "brief",
+                    "-s", "IJK", "ijkplayer", "ffmpeg", "libijksdl", "libijkplayer"
+                )
+            )
+            this.logcatProcess = logcatProcess
+
+            val thread = Thread {
+                try {
+                    logcatProcess.inputStream.bufferedReader().useLines { lines ->
+                        for (line in lines) {
+                            if (line.isBlank()) continue
+                            // 过滤 IJK 硬解相关日志
+                            if (line.contains("amc") ||
+                                line.contains("MediaCodec") ||
+                                line.contains("video_mime_type") ||
+                                line.contains("mediacodec") ||
+                                line.contains("decoder") ||
+                                line.contains("ffpipenode") ||
+                                line.contains("width:") ||
+                                line.contains("height:")
+                            ) {
+                                eventSink?.success(
+                                    mapOf(
+                                        "event" to "nativeLog",
+                                        "message" to line.trim()
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // 进程被终止时正常退出
+                }
+            }
+            thread.isDaemon = true
+            thread.start()
+            this.logcatThread = thread
+        } catch (e: Exception) {
+            Log.e("LiveIjkPlayer", "Failed to start logcat capture", e)
+        }
+    }
+
+    private fun stopLogcatCapture() {
+        try {
+            logcatProcess?.destroy()
+        } catch (_: Exception) {
+        }
+        logcatProcess = null
+        logcatThread = null
     }
 }

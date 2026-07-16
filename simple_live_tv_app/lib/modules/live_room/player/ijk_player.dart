@@ -186,6 +186,18 @@ class IjkPlayer implements BasePlayer {
           text: msg,
         ));
         break;
+      case 'nativeLog':
+        // native 层 IJK 日志（如 amc: video_mime_type error），
+        // 由 Kotlin 端 logcat 捕获转发，用于诊断硬解问题
+        final msg = event['message'] as String? ?? '';
+        if (msg.isNotEmpty) {
+          _logController.add(PlayerLogEntry(
+            prefix: 'ijk_native',
+            level: PlayerLogLevel.debug,
+            text: msg,
+          ));
+        }
+        break;
     }
   }
 
