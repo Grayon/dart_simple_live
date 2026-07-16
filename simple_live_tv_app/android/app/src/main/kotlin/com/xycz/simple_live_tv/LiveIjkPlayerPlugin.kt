@@ -29,6 +29,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     // 播放统计
     private var totalDroppedFrames: Int = 0
+    // 缓存大小（create 时保存，open reset 后重新应用选项时使用）
+    private var bufferSizeBytes: Int = 32 * 1024 * 1024
 
     private val playerListener = object : IMediaPlayer.OnPreparedListener,
         IMediaPlayer.OnCompletionListener,
@@ -231,21 +233,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
         IjkMediaPlayer.native_setLogLevel(ijkLogLevel)
 
-        // 缓冲参数
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
-
-        // 直播流优化：不自动暂停、不缓存到本地
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "nobuffer")
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
-
-        // 硬件解码（通过 setOption 开启 mediacodec）
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
+        bufferSizeBytes = bufferSize
+        applyPlayerOptions(p, bufferSize)
 
         // 绑定监听器
         p.setOnPreparedListener(playerListener)
@@ -280,16 +269,49 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return entry.id()
     }
 
+    /**
+     * 配置播放器选项（缓冲、硬解等）。
+     *
+     * 必须在 createPlayer 和每次 open(reset 后) 都重新调用，因为
+     * IjkMediaPlayer.reset() 会调用 native ffp_reset_internal，
+     * 清除 player_opts 字典并将所有 mediacodec 字段重置为 0，
+     * 导致切源后硬解失效回退到 FFmpeg 软解。
+     */
+    private fun applyPlayerOptions(p: IjkMediaPlayer, bufferSize: Int) {
+        // 缓冲参数
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
+
+        // 直播流优化：不自动暂停、不缓存到本地
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "nobuffer")
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
+
+        // 硬件解码（MediaCodec）
+        // 注意：debugly/ijkplayer 的 "mediacodec" 选项仅启用 H264 (mediacodec_avc)，
+        // HEVC/AV1 等其他编码格式不会走硬解。需要用 "mediacodec-all-videos"
+        // 覆盖所有视频格式，或单独启用 mediacodec-hevc 等。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
+    }
+
     private fun open(url: String, headers: Map<String, String>) {
         val p = player ?: return
         currentUrl = url
         p.reset()
 
-        // reset() 会清除 native 层的 surface 绑定，必须重新绑定，
-        // 否则 prepareAsync 后解码器没有渲染目标，导致只有声音没有视频
+        // reset() 会清除 native 层的 surface 绑定和所有 player 选项，
+        // 必须重新绑定 Surface 并重新应用选项（否则硬解失效、无视频画面）
         textureEntry?.surface?.let { surface ->
             p.setSurface(surface)
         }
+        applyPlayerOptions(p, bufferSizeBytes)
 
         // 设置 HTTP 请求头
         if (headers.isNotEmpty()) {
