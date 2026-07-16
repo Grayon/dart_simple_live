@@ -331,8 +331,18 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // video_mime_type strcmp 检查（该 fork 无 NULL 保护，不设或设错都会
         // 回退 FFmpeg）和 DefaultMediaCodecSelector 选择流程。
         // 动态查找设备的 H.264 硬件解码器，兼容不同设备（MTK/高通/海思等）。
-        findHardwareCodecName("video/avc")?.let { name ->
-            p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-default-name", name)
+        val hwCodecName = findHardwareCodecName("video/avc")
+        if (hwCodecName != null) {
+            Log.i("LiveIjkPlayer", "mediacodec-default-name = $hwCodecName")
+            eventSink?.success(
+                mapOf("event" to "nativeLog", "message" to "mediacodec-default-name = $hwCodecName")
+            )
+            p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-default-name", hwCodecName)
+        } else {
+            Log.w("LiveIjkPlayer", "未找到 video/avc 硬件解码器，将回退 FFmpeg 软解")
+            eventSink?.success(
+                mapOf("event" to "nativeLog", "message" to "未找到 video/avc 硬件解码器，将回退 FFmpeg 软解")
+            )
         }
     }
 
