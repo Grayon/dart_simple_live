@@ -294,16 +294,19 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // 注意：debugly/ijkplayer 的 "mediacodec" 选项仅启用 H264 (mediacodec_avc)，
         // HEVC/AV1 等其他编码格式不会走硬解。需要用 "mediacodec-all-videos"
         // 覆盖所有视频格式，或单独启用 mediacodec-hevc 等。
+        // 参考 blbl (cat3399/blbl) 的做法：显式设置 mediacodec-avc 和 mediacodec-auto-rotate。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-avc", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
         // video-mime-type 必须设置，否则 debugly/ijkplayer 的
         // ffpipenode_create_video_decoder_from_android_mediacodec 中
         // strcmp(mime_type, video_mime_type) 因 video_mime_type 为 NULL
         // 必定失败回退到 FFmpeg 软解（该 fork 未做 NULL 保护）。
         // 斗鱼直播流绝大多数为 H264，设为 video/avc。
+        // 对于 HEVC 流会回退软解，不会崩溃。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-mime-type", "video/avc")
     }
 
