@@ -285,6 +285,12 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         currentUrl = url
         p.reset()
 
+        // reset() 会清除 native 层的 surface 绑定，必须重新绑定，
+        // 否则 prepareAsync 后解码器没有渲染目标，导致只有声音没有视频
+        textureEntry?.surface?.let { surface ->
+            p.setSurface(surface)
+        }
+
         // 设置 HTTP 请求头
         if (headers.isNotEmpty()) {
             val sb = StringBuilder()
