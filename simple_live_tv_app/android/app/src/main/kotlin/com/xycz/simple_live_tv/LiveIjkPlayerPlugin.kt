@@ -32,6 +32,22 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var logcatProcess: Process? = null
     private var logcatThread: Thread? = null
 
+    // MediaCodec 解码器选择回调：native 层从流中解析出实际 mime type 后回调，
+    // 返回硬件解码器名称强制硬解（返回 null 则 IJK 自动选择，会回退到 FFmpeg）。
+    // 必须在 createPlayer 和每次 open(reset 后) 都重新注册，因为
+    // IjkMediaPlayer.reset() 会调用 resetListeners() 清除所有监听器。
+    private val mediaCodecSelectListener =
+        IjkMediaPlayer.OnMediaCodecSelectListener { _, mimeType, profile, level ->
+            val codecName = selectHardwareCodec(mimeType)
+            eventSink?.success(
+                mapOf(
+                    "event" to "nativeLog",
+                    "message" to "onMediaCodecSelect: mime=$mimeType profile=$profile level=$level -> $codecName"
+                )
+            )
+            codecName
+        }
+
     // 播放统计
     private var totalDroppedFrames: Int = 0
     // 缓存大小（create 时保存，open reset 后重新应用选项时使用）
@@ -251,22 +267,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOnVideoSizeChangedListener(playerListener)
         p.setOnBufferingUpdateListener(playerListener)
         p.setOnInfoListener(playerListener)
-
-        // MediaCodec 解码器选择回调：native 层从流中解析出实际 mime type 后回调，
-        // 返回硬件解码器名称强制硬解（返回 null 则 IJK 自动选择，会回退到 FFmpeg）。
-        // 这同时解决了两个问题：
-        // 1. 诊断：能看到流的实际 mime type（不再依赖 logcat）
-        // 2. 修复：直接返回硬件解码器名称，绕过 video-mime-type 匹配逻辑
-        p.setOnMediaCodecSelectListener { _, mimeType, profile, level ->
-            val codecName = selectHardwareCodec(mimeType)
-            eventSink?.success(
-                mapOf(
-                    "event" to "nativeLog",
-                    "message" to "onMediaCodecSelect: mime=$mimeType profile=$profile level=$level -> $codecName"
-                )
-            )
-            codecName
-        }
+        p.setOnMediaCodecSelectListener(mediaCodecSelectListener)
 
         player = p
 
@@ -325,13 +326,11 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
-        // video-mime-type 必须设置，否则 debugly/ijkplayer 的
+        // video-mime-type 不设置：debugly/ijkplayer 的
         // ffpipenode_create_video_decoder_from_android_mediacodec 中
-        // strcmp(mime_type, video_mime_type) 因 video_mime_type 为 NULL
-        // 必定失败回退到 FFmpeg 软解（该 fork 未做 NULL 保护）。
-        // 斗鱼直播流绝大多数为 H264，设为 video/avc。
-        // 对于 HEVC 流会回退软解，不会崩溃。
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-mime-type", "video/avc")
+        // 对 video_mime_type 有 NULL 保护（不设时跳过 strcmp 检查），
+        // 反而设了 video/avc 会因 strcmp 不匹配回退 FFmpeg。
+        // 硬解通过 OnMediaCodecSelectListener 回调强制选择硬件解码器（见下）。
     }
 
     private fun open(url: String, headers: Map<String, String>) {
@@ -339,12 +338,14 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         currentUrl = url
         p.reset()
 
-        // reset() 会清除 native 层的 surface 绑定和所有 player 选项，
-        // 必须重新绑定 Surface 并重新应用选项（否则硬解失效、无视频画面）
+        // reset() 会清除 native 层的 surface 绑定、所有 player 选项和监听器，
+        // 必须重新绑定 Surface、应用选项、注册 MediaCodec 选择回调
+        // （否则硬解失效、无视频画面、onMediaCodecSelect 不触发）
         textureEntry?.surface?.let { surface ->
             p.setSurface(surface)
         }
         applyPlayerOptions(p, bufferSizeBytes)
+        p.setOnMediaCodecSelectListener(mediaCodecSelectListener)
 
         // 设置 HTTP 请求头
         if (headers.isNotEmpty()) {
