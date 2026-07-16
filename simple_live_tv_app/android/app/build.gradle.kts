@@ -77,8 +77,9 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
 
     // IJKPlayer (FFmpeg) 播放器
-    implementation("tv.danmaku.ijk.media:ijkplayer-java:0.8.8")
-    implementation("tv.danmaku.ijk.media:ijkplayer-arm64:0.8.8")
-    implementation("tv.danmaku.ijk.media:ijkplayer-armv7a:0.8.8")
-    implementation("tv.danmaku.ijk.media:ijkplayer-x86_64:0.8.8")
+    // 原始包发布在 JCenter（已关停），通过 JitPack 获取
+    implementation("com.github.bilibili.ijkplayer:ijkplayer-java:0.8.8")
+    implementation("com.github.bilibili.ijkplayer:ijkplayer-arm64:0.8.8")
+    implementation("com.github.bilibili.ijkplayer:ijkplayer-armv7a:0.8.8")
+    implementation("com.github.bilibili.ijkplayer:ijkplayer-x86_64:0.8.8")
 }
