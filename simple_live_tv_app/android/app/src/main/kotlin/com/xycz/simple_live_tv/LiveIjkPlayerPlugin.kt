@@ -476,7 +476,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val logcatProcess = Runtime.getRuntime().exec(
                 arrayOf(
                     "logcat", "-v", "brief",
-                    "-s", "IJK", "ijkplayer", "ffmpeg", "libijksdl", "libijkplayer"
+                    "-s", "IJKMEDIA", "IJK", "ijkplayer", "ffmpeg", "libijksdl", "libijkplayer"
                 )
             )
             this.logcatProcess = logcatProcess
@@ -486,23 +486,13 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     logcatProcess.inputStream.bufferedReader().useLines { lines ->
                         for (line in lines) {
                             if (line.isBlank()) continue
-                            // 过滤 IJK 硬解相关日志
-                            if (line.contains("amc") ||
-                                line.contains("MediaCodec") ||
-                                line.contains("video_mime_type") ||
-                                line.contains("mediacodec") ||
-                                line.contains("decoder") ||
-                                line.contains("ffpipenode") ||
-                                line.contains("width:") ||
-                                line.contains("height:")
-                            ) {
-                                eventSink?.success(
-                                    mapOf(
-                                        "event" to "nativeLog",
-                                        "message" to line.trim()
-                                    )
+                            // 转发所有 IJK native 日志（tag 已在 logcat -s 中过滤）
+                            eventSink?.success(
+                                mapOf(
+                                    "event" to "nativeLog",
+                                    "message" to line.trim()
                                 )
-                            }
+                            )
                         }
                     }
                 } catch (_: Exception) {
