@@ -326,11 +326,28 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
-        // video-mime-type 不设置：debugly/ijkplayer 的
-        // ffpipenode_create_video_decoder_from_android_mediacodec 中
-        // 对 video_mime_type 有 NULL 保护（不设时跳过 strcmp 检查），
-        // 反而设了 video/avc 会因 strcmp 不匹配回退 FFmpeg。
-        // 硬解通过 OnMediaCodecSelectListener 回调强制选择硬件解码器（见下）。
+
+        // mediacodec-default-name 直接指定硬件解码器名称，绕过 native 层的
+        // video_mime_type strcmp 检查（该 fork 无 NULL 保护，不设或设错都会
+        // 回退 FFmpeg）和 DefaultMediaCodecSelector 选择流程。
+        // 动态查找设备的 H.264 硬件解码器，兼容不同设备（MTK/高通/海思等）。
+        findHardwareCodecName("video/avc")?.let { name ->
+            p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-default-name", name)
+        }
+    }
+
+    /** 查找设备上支持指定 mime type 的硬件解码器名称 */
+    private fun findHardwareCodecName(mimeType: String): String? {
+        return try {
+            val codecList = MediaCodecList(MediaCodecList.ALL_CODECS)
+            codecList.codecInfos.firstOrNull { info ->
+                !info.isEncoder &&
+                    info.isHardwareAccelerated &&
+                    info.supportedTypes.contains(mimeType)
+            }?.name
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun open(url: String, headers: Map<String, String>) {
