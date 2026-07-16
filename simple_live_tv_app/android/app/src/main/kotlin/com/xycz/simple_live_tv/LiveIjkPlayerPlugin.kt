@@ -299,6 +299,12 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
+        // video-mime-type 必须设置，否则 debugly/ijkplayer 的
+        // ffpipenode_create_video_decoder_from_android_mediacodec 中
+        // strcmp(mime_type, video_mime_type) 因 video_mime_type 为 NULL
+        // 必定失败回退到 FFmpeg 软解（该 fork 未做 NULL 保护）。
+        // 斗鱼直播流绝大多数为 H264，设为 video/avc。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-mime-type", "video/avc")
     }
 
     private fun open(url: String, headers: Map<String, String>) {

@@ -281,18 +281,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   @override
   void mediaEnd() async {
     if (_isRetrying || _isOpening) return;
-    if (mediaErrorRetryCount < 2) {
-      Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
-      _isRetrying = true;
-      if (mediaErrorRetryCount == 1) {
-        await Future.delayed(const Duration(seconds: 1));
-      }
-      mediaErrorRetryCount += 1;
-      await setPlayer();
-      _isRetrying = false;
-      return;
-    }
 
+    // 直播流播放结束通常意味着断流或主播下播，重新打开同一 URL 无法恢复
+    // 之前的重试逻辑会导致反复加载（多次 width/height 回调），这里直接切换线路或标记结束
     Log.d("播放结束");
     if (playUrls.length - 1 == currentLineIndex) {
       liveStatus.value = false;
