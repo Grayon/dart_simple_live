@@ -309,15 +309,22 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun applyPlayerOptions(p: IjkMediaPlayer, bufferSize: Int) {
         // 缓冲参数
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 2L)
+        // min-frames 从 2 提升到 5，给硬解管线留足够缓冲，避免网络抖动时
+        // 缓冲耗尽导致画面卡住（之前 min-frames=2 + nobuffer 几乎零缓冲）
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 5L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
+        // 硬解场景关闭丢帧：硬解由 MediaCodec 硬件处理，CPU 不是瓶颈，
+        // 不需要丢帧来追帧，反而能保证渲染帧率稳定
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 0L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
-        // 直播流优化：不自动暂停、不缓存到本地
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "nobuffer")
+        // 直播流优化：不缓存到本地，但保留 ffmpeg 内部缓冲（不设 nobuffer）
+        // 之前 fflags=nobuffer + flags=low_delay 过于激进，网络稍有抖动就
+        // 缓冲耗尽导致画面卡住。移除 nobuffer 允许 ffmpeg 维持一定预缓冲。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
+        // 网络断线自动重连，避免直播流断开后卡死
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
 
         // 硬件解码（MediaCodec）
         // 注意：debugly/ijkplayer 的 "mediacodec" 选项仅启用 H264 (mediacodec_avc)，
