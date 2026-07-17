@@ -331,14 +331,15 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
 
-        // async_init_decoder=1 + video-mime-type + mediacodec-default-name 走
+        // async-init-decoder=1 + video-mime-type + mediacodec-default-name 走
         // ffpipeline_init_video_decoder 异步初始化路径，直接用 mediacodec-default-name
         // 通过 SDL_AMediaCodecJava_createByCodecName 创建硬件 MediaCodec，
         // 绕过同步路径的 mediacodec_select_callback（需 Java 层 onMediaCodecSelect
         // 返回非空，否则 amc: no suitable codec 回退 FFmpeg）。
         // 参考 ff_ffplay.c:3713 的异步初始化条件：必须同时设置 video_mime_type
         // 和 mediacodec_default_name（非空）才会进入该分支。
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "async_init_decoder", 1L)
+        // 注意：IJK 选项名用连字符（async-init-decoder），下划线会被静默忽略。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "async-init-decoder", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-mime-type", "video/avc")
 
         // mediacodec-default-name 直接指定硬件解码器名称，绕过 native 层的
