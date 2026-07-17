@@ -151,10 +151,17 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
                     eventSink = sink
+                    // Dart 端订阅事件通道后 eventSink 才有效，
+                    // 此时再启动 logcat 捕获，避免 native 日志被静默丢弃
+                    startLogcatCapture()
+                    eventSink?.success(
+                        mapOf("event" to "nativeLog", "message" to "IJK_LOGCAT_CAPTURE_STARTED")
+                    )
                 }
 
                 override fun onCancel(arguments: Any?) {
                     eventSink = null
+                    stopLogcatCapture()
                 }
             }
         )
@@ -253,9 +260,6 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             else -> IjkMediaPlayer.IJK_LOG_INFO
         }
         IjkMediaPlayer.native_setLogLevel(ijkLogLevel)
-
-        // 启动 logcat 捕获，将 native 层 IJK 日志转发到 Dart 层
-        startLogcatCapture()
 
         bufferSizeBytes = bufferSize
         applyPlayerOptions(p, bufferSize)
@@ -535,21 +539,21 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
      *
      * 这些日志由 C 层直接输出到 Android logcat，不经过 Java/Kotlin 层，
      * 之前无法被 Dart 层的 Log 系统捕获，导致硬解失败时无法诊断。
+     *
+     * 注意：必须在 eventSink 就绪后调用（onListen 回调中），否则日志会被静默丢弃。
      */
     private fun startLogcatCapture() {
         stopLogcatCapture()
         try {
-            // 只捕获 IJK 相关 tag，避免日志量过大
-            val process = Runtime.getRuntime().exec(
-                arrayOf("logcat", "-c")
-            )
-            process.waitFor()
+            // 清空 logcat 缓冲区，避免旧日志干扰
+            val clearProcess = Runtime.getRuntime().exec(arrayOf("logcat", "-c"))
+            clearProcess.waitFor()
 
+            // 不过滤 tag，捕获所有日志后在 Kotlin 层过滤。
+            // 原因：debugly/ijkplayer fork 的 native 日志 tag 不确定，
+            // 之前用 -s IJKMEDIA IJK ijkplayer ffmpeg 过滤会漏掉关键日志。
             val logcatProcess = Runtime.getRuntime().exec(
-                arrayOf(
-                    "logcat", "-v", "brief",
-                    "-s", "IJKMEDIA", "IJK", "ijkplayer", "ffmpeg", "libijksdl", "libijkplayer"
-                )
+                arrayOf("logcat", "-v", "brief")
             )
             this.logcatProcess = logcatProcess
 
@@ -558,13 +562,34 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     logcatProcess.inputStream.bufferedReader().useLines { lines ->
                         for (line in lines) {
                             if (line.isBlank()) continue
-                            // 转发所有 IJK native 日志（tag 已在 logcat -s 中过滤）
-                            eventSink?.success(
-                                mapOf(
-                                    "event" to "nativeLog",
-                                    "message" to line.trim()
+                            val lower = line.lowercase()
+                            // 只转发 IJK/MediaCodec/FFmpeg 相关日志，减少噪音
+                            if (lower.contains("ijk") ||
+                                lower.contains("mediacodec") ||
+                                lower.contains("amc") ||
+                                lower.contains("ffmpeg") ||
+                                lower.contains("ffp") ||
+                                lower.contains("videotoolbox") ||
+                                lower.contains("sdl_") ||
+                                lower.contains("libijksdl") ||
+                                lower.contains("libijkplayer") ||
+                                lower.contains("avcodec") ||
+                                lower.contains("decoder") ||
+                                lower.contains("codec_id") ||
+                                lower.contains("video_mime_type") ||
+                                lower.contains("h264") ||
+                                lower.contains("hevc") ||
+                                lower.contains("flv") ||
+                                lower.contains("live") ||
+                                lower.contains("stream_component_open")
+                            ) {
+                                eventSink?.success(
+                                    mapOf(
+                                        "event" to "nativeLog",
+                                        "message" to line.trim()
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 } catch (_: Exception) {
@@ -572,8 +597,10 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 }
             }
             thread.isDaemon = true
+            thread.name = "IJKLogcatCapture"
             thread.start()
             this.logcatThread = thread
+            Log.i("LiveIjkPlayer", "logcat capture started")
         } catch (e: Exception) {
             Log.e("LiveIjkPlayer", "Failed to start logcat capture", e)
         }
