@@ -51,8 +51,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // 播放统计
     private var totalDroppedFrames: Int = 0
     // 缓存大小（create 时保存，open reset 后重新应用选项时使用）
-    // 32MB 对 2K 高码率流（~16Mbps）只够缓冲约 16 秒，提升到 64MB 给 2K 流更多余量
-    private var bufferSizeBytes: Int = 64 * 1024 * 1024
+    private var bufferSizeBytes: Int = 32 * 1024 * 1024
 
     private val playerListener = object : IMediaPlayer.OnPreparedListener,
         IMediaPlayer.OnCompletionListener,
@@ -310,9 +309,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun applyPlayerOptions(p: IjkMediaPlayer, bufferSize: Int) {
         // 缓冲参数
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "probsize", bufferSize.toLong())
-        // min-frames 从 5 提升到 10，给 2K 高码率流（~16Mbps）留更多缓冲余量，
-        // 关键帧大、解码耗时长，缓冲太小容易耗尽导致画面卡住。
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 10L)
+        // min-frames=5：在 low_delay 模式下保持适度缓冲，过小容易耗尽，
+        // 过大（10+）会增加起播延迟且与 low_delay 冲突。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 5L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
         // framedrop=1：允许在解码/渲染管线落后时丢帧，避免高码率流（如 2K）
         // 因输出缓冲区占满导致解码器阻塞、画面冻住（音频走独立管线不受影响）。
@@ -320,11 +319,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
-        // 直播流优化：不缓存到本地，但保留 ffmpeg 内部缓冲
-        // 之前 fflags=nobuffer + flags=low_delay 过于激进，导致缓冲始终为 0
-        // （已用缓存 0KB / 缓存时长 0s），4K/2K 高码率流网络稍有抖动就
-        // 缓冲耗尽画面冻住。移除 low_delay 允许 ffmpeg 正常预缓冲，
-        // 牺牲 1-2 秒延迟换取播放流畅。
+        // 直播流优化：low_delay 对直播流必要，控制解码端不做额外帧缓存，
+        // 移除后会导致音视频同步异常（声音也卡顿）。保留 low_delay。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
         // 网络断线自动重连，避免直播流断开后卡死
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
@@ -338,8 +335,13 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-avc", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-hevc", 1L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
+        // 禁用 mediacodec-handle-resolution-change 和 mediacodec-auto-rotate：
+        // async-init-decoder 路径在流解析前就创建 MediaCodec，当实际 4K/2K
+        // 分辨率到达时，handle-resolution-change 尝试重新配置已有 codec，
+        // 在大分辨率上容易死锁导致画面冻住。直播流分辨率固定，不需要
+        // 动态分辨率切换或自动旋转，禁用后由 codec 重建处理更可靠。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 0L)
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 0L)
 
         // async-init-decoder=1 + video-mime-type + mediacodec-default-name 走
         // ffpipeline_init_video_decoder 异步初始化路径，直接用 mediacodec-default-name
