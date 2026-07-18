@@ -319,12 +319,14 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
-        // 直播流优化：兼顾延迟和流畅（高码率 2K/4K 直播）
-        // fflags=genpts+discardcorrupt：确保时间戳正确（避免音视频同步异常），
-        //   丢弃损坏的包（避免坏包导致解码卡死），不设 nobuffer 允许适度缓冲。
-        // flags=low_delay：控制解码端不做额外帧缓存，降低起播延迟。
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "genpts+discardcorrupt")
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
+        // 直播流优化：高码率 2K/4K 直播优先流畅性
+        // fflags=genpts+igndts+discardcorrupt：
+        //   genpts 生成正确时间戳（避免音视频同步异常），
+        //   igndts 忽略异常 DTS（避免 DTS 乱序导致卡顿），
+        //   discardcorrupt 丢弃坏包（避免坏包导致解码卡死）。
+        // 不设 flags（无 low_delay）：允许 ffmpeg 正常预缓冲，
+        //   网络抖动时有缓冲余量，避免 2K/4K 高码率流画面冻住。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "genpts+igndts+discardcorrupt")
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
         // 网络断线自动重连，避免直播流断开后卡死
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
