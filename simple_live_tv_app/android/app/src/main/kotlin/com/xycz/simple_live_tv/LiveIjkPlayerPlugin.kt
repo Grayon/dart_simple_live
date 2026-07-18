@@ -313,9 +313,10 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // 缓冲耗尽导致画面卡住（之前 min-frames=2 + nobuffer 几乎零缓冲）
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 5L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 60L)
-        // 硬解场景关闭丢帧：硬解由 MediaCodec 硬件处理，CPU 不是瓶颈，
-        // 不需要丢帧来追帧，反而能保证渲染帧率稳定
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 0L)
+        // framedrop=1：允许在解码/渲染管线落后时丢帧，避免高码率流（如 2K）
+        // 因输出缓冲区占满导致解码器阻塞、画面冻住（音频走独立管线不受影响）。
+        // 之前设为 0 导致 2K 流播放 2 秒后画面卡住。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
         // 直播流优化：不缓存到本地，但保留 ffmpeg 内部缓冲（不设 nobuffer）
