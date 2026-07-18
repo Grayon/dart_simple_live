@@ -220,7 +220,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                             "audioChannels" to 0,
                             "droppedFrames" to totalDroppedFrames,
                             "isPlaying" to p.isPlaying,
-                            "bufferedPosition" to 0,
+                            "bufferedPosition" to p.bufferedPosition,
                             "currentPosition" to p.currentPosition,
                             "contentDuration" to p.duration,
                             "playbackSpeed" to p.getSpeed(0f),
@@ -307,21 +307,22 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
      * 导致切源后硬解失效回退到 FFmpeg 软解。
      */
     private fun applyPlayerOptions(p: IjkMediaPlayer, bufferSize: Int) {
-        // 参考 blbl (cat3399/blbl) 的极简做法：不设 fflags/flags/probsize/
-        // min-frames/max-fps 等缓冲选项，避免干扰 IJK 默认行为导致卡顿。
-        // 之前反复设置 low_delay/nobuffer/genpts 等反而导致 2K/4K 流画面冻住。
+        // 直播流缓冲策略：
+        // 之前盲目对齐 blbl 的极简方案（不设 fflags/infbuf/buffer_size），
+        // 但 blbl/斗鱼都有自研引擎或文件缓存兜底，纯 IJK 扛不住 2K 高码率。
+        // 根因是直播流缓冲耗尽后内容还没加载出来导致播放卡住。
+        // 参考：nobuffer+low_delay 那次播放最久，说明缓冲策略才是关键。
 
         // 播放控制
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0L)
 
-        // 网络：断线重连 + 20 秒超时（与 blbl 一致）
+        // 网络：断线重连 + 20 秒超时
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "timeout", 20_000_000L)
         // FLV 直播流协议白名单：ijklivehook/ijklongurl/ijksegment 等是 IJK
         // 专门处理 FLV 直播流的协议钩子，缺失会导致直播流不稳定（卡顿/断连）。
-        // 参考 blbl (cat3399/blbl) 的做法。
         p.setOption(
             IjkMediaPlayer.OPT_CATEGORY_FORMAT,
             "protocol_whitelist",
@@ -329,11 +330,28 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         )
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "allowed_extensions", "ALL")
 
+        // 直播流缓冲核心配置：
+        // - infbuf=1: 移除默认 10 秒缓冲上限，直播流可以无限缓冲
+        // - fflags=genpts+igndts+discardcorrupt: 生成PTS、忽略错误DTS（直播流DTS常异常）、
+        //   丢弃损坏包，避免损坏包导致解码器卡死。不加 nobuffer（那会禁用缓冲）。
+        // - buffer_size: 使用 Dart 层配置的 socket 接收缓冲区大小，之前被完全忽略了。
+        // - flush_packets=1: 确保缓冲的数据包及时刷新到解码器。
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "infbuf", 1L)
+        p.setOption(
+            IjkMediaPlayer.OPT_CATEGORY_FORMAT,
+            "fflags",
+            "genpts+igndts+discardcorrupt"
+        )
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flush_packets", 1L)
+        // 将 Dart 层配置的缓冲大小应用到 socket 接收缓冲区（之前 bufferSize 参数被忽略）
+        if (bufferSize > 0) {
+            p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "buffer_size", bufferSize.toLong())
+        }
+
         // 硬件解码（MediaCodec）
         // 注意：debugly/ijkplayer 的 "mediacodec" 选项仅启用 H264 (mediacodec_avc)，
         // HEVC/AV1 等其他编码格式不会走硬解。需要用 "mediacodec-all-videos"
         // 覆盖所有视频格式，或单独启用 mediacodec-hevc 等。
-        // 参考 blbl (cat3399/blbl) 的做法：显式设置 mediacodec-avc 和 mediacodec-hevc。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-avc", 1L)
@@ -346,8 +364,6 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // 通过 SDL_AMediaCodecJava_createByCodecName 创建硬件 MediaCodec，
         // 绕过同步路径的 mediacodec_select_callback（需 Java 层 onMediaCodecSelect
         // 返回非空，否则 amc: no suitable codec 回退 FFmpeg）。
-        // 参考 ff_ffplay.c:3713 的异步初始化条件：必须同时设置 video_mime_type
-        // 和 mediacodec_default_name（非空）才会进入该分支。
         // 注意：IJK 选项名用连字符（async-init-decoder），下划线会被静默忽略。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "async-init-decoder", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-mime-type", "video/avc")
