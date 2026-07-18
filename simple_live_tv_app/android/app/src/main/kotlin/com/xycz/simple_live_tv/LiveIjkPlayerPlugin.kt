@@ -320,10 +320,11 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L)
 
-        // 直播流优化：不缓存到本地，但保留 ffmpeg 内部缓冲（不设 nobuffer）
-        // 之前 fflags=nobuffer + flags=low_delay 过于激进，网络稍有抖动就
-        // 缓冲耗尽导致画面卡住。移除 nobuffer 允许 ffmpeg 维持一定预缓冲。
-        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flags", "low_delay")
+        // 直播流优化：不缓存到本地，但保留 ffmpeg 内部缓冲
+        // 之前 fflags=nobuffer + flags=low_delay 过于激进，导致缓冲始终为 0
+        // （已用缓存 0KB / 缓存时长 0s），4K/2K 高码率流网络稍有抖动就
+        // 缓冲耗尽画面冻住。移除 low_delay 允许 ffmpeg 正常预缓冲，
+        // 牺牲 1-2 秒延迟换取播放流畅。
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rtsp_transport", "tcp")
         // 网络断线自动重连，避免直播流断开后卡死
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
