@@ -220,7 +220,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                             "audioChannels" to 0,
                             "droppedFrames" to totalDroppedFrames,
                             "isPlaying" to p.isPlaying,
-                            "bufferedPosition" to p.bufferedPosition,
+                            "bufferedPosition" to 0,
                             "currentPosition" to p.currentPosition,
                             "contentDuration" to p.duration,
                             "playbackSpeed" to p.getSpeed(0f),
