@@ -319,6 +319,15 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // 网络：断线重连 + 20 秒超时（与 blbl 一致）
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L)
         p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "timeout", 20_000_000L)
+        // FLV 直播流协议白名单：ijklivehook/ijklongurl/ijksegment 等是 IJK
+        // 专门处理 FLV 直播流的协议钩子，缺失会导致直播流不稳定（卡顿/断连）。
+        // 参考 blbl (cat3399/blbl) 的做法。
+        p.setOption(
+            IjkMediaPlayer.OPT_CATEGORY_FORMAT,
+            "protocol_whitelist",
+            "async,cache,crypto,file,http,https,ijkhttphook,ijkinject,ijklivehook,ijklongurl,ijksegment,ijktcphook,pipe,rtp,tcp,tls,udp,ijkurlhook,data"
+        )
+        p.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "allowed_extensions", "ALL")
 
         // 硬件解码（MediaCodec）
         // 注意：debugly/ijkplayer 的 "mediacodec" 选项仅启用 H264 (mediacodec_avc)，
@@ -400,7 +409,10 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
 
         try {
-            p.setDataSource(appContext, Uri.parse(url))
+            // 用纯字符串 setDataSource(url) 而非 setDataSource(context, uri)，
+            // 避免 ContentResolver 对 HTTP FLV 直播流的额外开销和处理不当。
+            // 参考 blbl (cat3399/blbl) 对直播流的做法。
+            p.setDataSource(url)
             p.prepareAsync()
         } catch (e: Exception) {
             Log.e("LiveIjkPlayer", "Failed to open URL: $url", e)
