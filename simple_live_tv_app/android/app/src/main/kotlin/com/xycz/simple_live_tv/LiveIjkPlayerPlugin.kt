@@ -51,7 +51,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // 播放统计
     private var totalDroppedFrames: Int = 0
     // 缓存大小（create 时保存，open reset 后重新应用选项时使用）
-    private var bufferSizeBytes: Int = 32 * 1024 * 1024
+    // 32MB 对 2K 高码率流（~16Mbps）只够缓冲约 16 秒，提升到 64MB 给 2K 流更多余量
+    private var bufferSizeBytes: Int = 64 * 1024 * 1024
 
     private val playerListener = object : IMediaPlayer.OnPreparedListener,
         IMediaPlayer.OnCompletionListener,
