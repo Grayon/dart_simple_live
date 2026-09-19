@@ -216,14 +216,17 @@ class MyApp extends StatelessWidget {
           loadingBuilder: ((msg) => const AppLoaddingWidget()),
           //字体大小不跟随系统变化
           builder: (context, child) {
-            // Fix for HyperOS windowed-mode Flutter bug:
+            // Fix for HyperOS windowed-mode Flutter bug (仅 Android 生效)：
             // - Values > 50 indicate the bug (windowed mode on HyperOS)
             // - Values == 0 are valid for fullscreen/immersive mode and must NOT be treated as abnormal
+            // 绝不能在 iOS 上做此 clamp：灵动岛机型(iPhone Air/Pro 等)真实顶部安全区约 59pt，
+            // 本就大于 50，旧逻辑会误判并把顶部安全区压成 25，导致导航栏与灵动岛重叠。
             const fallbackPadding = EdgeInsets.only(top: 25, bottom: 35);
             const maxNormalPadding = 50.0;
 
             final mediaQueryData = MediaQuery.of(context);
-            final hasAbnormalPadding = mediaQueryData.viewPadding.top > maxNormalPadding;
+            final hasAbnormalPadding = Platform.isAndroid &&
+                mediaQueryData.viewPadding.top > maxNormalPadding;
 
             final fixedMediaQueryData = hasAbnormalPadding
                 ? mediaQueryData.copyWith(
