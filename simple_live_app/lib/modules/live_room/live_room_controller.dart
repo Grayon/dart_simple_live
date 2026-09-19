@@ -1016,6 +1016,11 @@ ${error?.stackTrace}''');
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
 
+    // 桌面端（macOS/Windows/Linux）生命周期与移动端不同：
+    // - inactive 表示窗口失去焦点（非 key）但仍完全可见；
+    // - hidden  表示窗口最小化、被遮挡或切到其他桌面，窗口不可见。
+    final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
     if (state == AppLifecycleState.paused) {
       Log.d("进入后台");
       //进入后台，关闭弹幕
@@ -1033,10 +1038,22 @@ ${error?.stackTrace}''');
       // 这里在回前台时显式恢复渲染（resume 内部自带 !_running 判断，可重复安全调用）。
       danmakuController?.resume();
     } else
-    // 桌面端窗口被遮挡（macOS inactive/hidden）：不清空弹幕，只阻断新增，
-    // 避免遮挡期间弹幕在队列堆积、切回前台一次性 flush 导致卡顿
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden) {
+    // 桌面窗口不可见（最小化/被遮挡/切到其他 Space）：停止新增并暂停弹幕渲染。
+    if (isDesktop && state == AppLifecycleState.hidden) {
+      Log.d("窗口隐藏：$state");
+      isBackground = true;
+      danmakuController?.pause();
+    } else
+    // 桌面窗口仅失去焦点但仍可见：弹幕照常渲染（resume 幂等，也兼容从 hidden 恢复到
+    // “可见但未聚焦”的情况）。
+    if (isDesktop && state == AppLifecycleState.inactive) {
+      isBackground = false;
+      danmakuController?.resume();
+    } else
+    // 移动端 inactive/hidden（来电、控制中心、应用切换器等短暂遮挡）仍按后台处理。
+    if (!isDesktop &&
+        (state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.hidden)) {
       Log.d("窗口失活：$state");
       isBackground = true;
     }
