@@ -4,7 +4,6 @@ import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_tv_app/app/constant.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
@@ -268,10 +267,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       // 避免并发 open 导致 native 层资源泄漏卡死整个系统
       await player.stop();
       await player.open(
-        Media(
-          playUrls[currentLineIndex],
-          httpHeaders: playHeaders,
-        ),
+        playUrls[currentLineIndex],
+        headers: playHeaders,
       );
       Log.d("播放链接\r\n：${playUrls[currentLineIndex]}");
     } catch (e) {
@@ -284,18 +281,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   @override
   void mediaEnd() async {
     if (_isRetrying || _isOpening) return;
-    if (mediaErrorRetryCount < 2) {
-      Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
-      _isRetrying = true;
-      if (mediaErrorRetryCount == 1) {
-        await Future.delayed(const Duration(seconds: 1));
-      }
-      mediaErrorRetryCount += 1;
-      await setPlayer();
-      _isRetrying = false;
-      return;
-    }
 
+    // 直播流播放结束通常意味着断流或主播下播，重新打开同一 URL 无法恢复
+    // 之前的重试逻辑会导致反复加载（多次 width/height 回调），这里直接切换线路或标记结束
     Log.d("播放结束");
     if (playUrls.length - 1 == currentLineIndex) {
       liveStatus.value = false;
@@ -315,19 +303,29 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     'Error while decoding frame',
     'No render context set',
     'Failed to flush codec',
+    // ExoPlayer MediaCodec 错误（code: 4003 = DECODER_INIT_FAILED）
+    'MediaCodecVideoRenderer error',
+    'Decoder init failed',
+    'codec: 4003',
+    'code: 4003',
   ];
 
   @override
   void mediaError(String error) async {
     if (_isRetrying || _isOpening) return;
 
-    // 硬解失败：首次降级到 mediacodec-copy（仍硬解），再重试
-    if (!forceCopyHwdec &&
+    // 硬解失败：完全重建播放器并重试 mediacodec（不降级到 copy，多数电视 hwupload 不支持）
+    // 仅 stop()+open() 无法恢复 VO 子系统崩溃（"No render context set"）
+    if (!hwdecRetried &&
         _hwdecErrorKeywords.any((k) => error.contains(k))) {
-      Log.d("检测到硬解失败，降级到 mediacodec-copy: $error");
-      forceCopyHwdec = true;
+      Log.d("检测到硬解失败，重建播放器重试 mediacodec: $error");
+      hwdecRetried = true;
       _isRetrying = true;
       mediaErrorRetryCount = 0;
+      // 完全销毁重建底层播放器和渲染器，恢复 VO 子系统
+      await recreatePlayer();
+      // 给 Surface 初始化留时间，避免 "Both surface and native_window are NULL"
+      await Future.delayed(const Duration(milliseconds: 300));
       await setPlayer();
       _isRetrying = false;
       return;
@@ -352,6 +350,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       _isRetrying = true;
       changePlayLine(currentLineIndex + 1);
       _isRetrying = false;
+    }
+  }
+
+  @override
+  Future<void> onVoFatal() async {
+    // VO 崩溃后播放器已重建，重新开始播放
+    if (playUrls.isNotEmpty && currentLineIndex >= 0) {
+      Log.d("VO 崩溃恢复：重新播放");
+      mediaErrorRetryCount = 0;
+      // 给 Surface 初始化留时间
+      await Future.delayed(const Duration(milliseconds: 300));
+      await setPlayer();
     }
   }
 
@@ -511,6 +521,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
       isBackground = false;
+      // canvas_danmaku 进后台自行 pause() 后从不 resume()，回前台内部 _running 仍为
+      // false，新弹幕在 addDanmaku 入口被丢弃导致飘屏消失。显式恢复渲染。
+      danmakuController?.resume();
       // 返回前台时恢复播放
       if (_stoppedForBackground) {
         _stoppedForBackground = false;

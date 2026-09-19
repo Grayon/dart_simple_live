@@ -134,60 +134,26 @@ class SettingsPage extends GetView<SettingsController> {
   }
 
   Widget buildPlayerSettings() {
+    return Obx(() {
+      final isMpv = AppSettingsController.instance.playerEngine.value == PlayerEngine.mpv;
     return ListView(
       padding: AppStyle.edgeInsetsA48,
       children: [
         Obx(
           () => SettingsItemWidget(
-            foucsNode: controller.hardwareDecodeFocusNode,
-            autofocus: controller.hardwareDecodeFocusNode.isFoucsed.value,
-            title: "硬件解码",
+            foucsNode: controller.playerEngineFocusNode,
+            autofocus: controller.playerEngineFocusNode.isFoucsed.value,
+            title: "播放器引擎",
             items: const {
-              0: "关",
-              1: "开",
+              0: "mpv (功能全)",
+              1: "ExoPlayer (系统兼容好)",
+              2: "IJKPlayer (格式兼容好)",
             },
-            value: AppSettingsController.instance.hardwareDecode.value ? 1 : 0,
+            value: AppSettingsController.instance.playerEngine.value.index,
             onChanged: (e) {
               AppSettingsController.instance
-                  .setHardwareDecode(e == 1 ? true : false);
-            },
-          ),
-        ),
-        AppStyle.vGap24,
-        Obx(
-          () => SettingsItemWidget(
-            foucsNode: controller.compatibleModeFocusNode,
-            autofocus: controller.compatibleModeFocusNode.isFoucsed.value,
-            title: "强制硬件解码",
-            items: const {
-              0: "关",
-              1: "开",
-            },
-            value:
-                AppSettingsController.instance.playerCompatMode.value ? 1 : 0,
-            onChanged: (e) {
-              AppSettingsController.instance
-                  .setPlayerCompatMode(e == 1 ? true : false);
-            },
-          ),
-        ),
-        AppStyle.vGap24,
-        Obx(
-          () => SettingsItemWidget(
-            foucsNode: controller.liveBufferModeFocusNode,
-            autofocus: controller.liveBufferModeFocusNode.isFoucsed.value,
-            title: "直播缓冲策略",
-            items: const {
-              0: "低延迟",
-              1: "平衡（推荐）",
-              2: "抗抖动",
-            },
-            value: AppSettingsController
-                .instance.playerLiveBufferMode.value.index,
-            onChanged: (e) {
-              AppSettingsController.instance.setPlayerLiveBufferMode(
-                LiveBufferMode.values[e],
-              );
+                  .setPlayerEngine(PlayerEngine.values[e]);
+              SmartDialog.showToast("重启app后生效");
             },
           ),
         ),
@@ -246,23 +212,6 @@ class SettingsPage extends GetView<SettingsController> {
         AppStyle.vGap24,
         Obx(
           () => SettingsItemWidget(
-            foucsNode: controller.highFpsCompatFocusNode,
-            autofocus: controller.highFpsCompatFocusNode.isFoucsed.value,
-            title: "高帧率兼容模式",
-            items: const {
-              0: "关",
-              1: "开",
-            },
-            value: AppSettingsController.instance.highFpsCompat.value ? 1 : 0,
-            onChanged: (e) {
-              AppSettingsController.instance.setHighFpsCompat(e == 1);
-              SmartDialog.showToast("重启生效，开启后强制软解，防止60fps等直播源卡死");
-            },
-          ),
-        ),
-        AppStyle.vGap24,
-        Obx(
-          () => SettingsItemWidget(
             foucsNode: controller.disableChannelSwitchFocusNode,
             autofocus: controller.disableChannelSwitchFocusNode.isFoucsed.value,
             title: "禁用上下键切台",
@@ -301,101 +250,165 @@ class SettingsPage extends GetView<SettingsController> {
             },
           ),
         ),
-        AppStyle.vGap32,
-        const Text(
-          "播放器高级设置",
-          style: TextStyle(
-            color: Colors.white54,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        AppStyle.vGap16,
-        Obx(
-          () => SettingsItemWidget(
-            foucsNode: controller.customPlayerOutputFocusNode,
-            autofocus: controller.customPlayerOutputFocusNode.isFoucsed.value,
-            title: "自定义输出驱动",
-            items: const {
-              0: "关",
-              1: "开",
-            },
-            value:
-                AppSettingsController.instance.customPlayerOutput.value ? 1 : 0,
-            onChanged: (e) {
-              AppSettingsController.instance.setCustomPlayerOutput(e == 1);
-              SmartDialog.showToast("重启生效");
-            },
-          ),
-        ),
-        AppStyle.vGap24,
-        Obx(
-          () => Visibility(
-            visible: AppSettingsController.instance.customPlayerOutput.value,
-            child: Column(
-              children: [
-                SettingsItemWidget(
-                  foucsNode: controller.videoOutputDriverFocusNode,
-                  autofocus:
-                      controller.videoOutputDriverFocusNode.isFoucsed.value,
-                  title: "视频输出驱动 (--vo)",
-                  items: const {
-                    "mediacodec_embed": "mediacodec_embed",
-                    "gpu": "gpu",
-                    "gpu-next": "gpu-next",
-                    "null": "null",
-                    "libmpv": "libmpv",
-                  },
-                  value: AppSettingsController.instance.videoOutputDriver.value,
-                  onChanged: (e) {
-                    AppSettingsController.instance.setVideoOutputDriver(e);
-                    SmartDialog.showToast("重启生效");
-                  },
-                ),
-                AppStyle.vGap24,
-                SettingsItemWidget(
-                  foucsNode: controller.audioOutputDriverFocusNode,
-                  autofocus:
-                      controller.audioOutputDriverFocusNode.isFoucsed.value,
-                  title: "音频输出驱动 (--ao)",
-                  items: const {
-                    "audiotrack": "audiotrack",
-                    "opensles": "opensles",
-                    "aaudio": "aaudio",
-                    "pcm": "pcm",
-                    "null": "null",
-                  },
-                  value: AppSettingsController.instance.audioOutputDriver.value,
-                  onChanged: (e) {
-                    AppSettingsController.instance.setAudioOutputDriver(e);
-                    SmartDialog.showToast("重启生效");
-                  },
-                ),
-                AppStyle.vGap24,
-                SettingsItemWidget(
-                  foucsNode: controller.videoHardwareDecoderFocusNode,
-                  autofocus: controller
-                      .videoHardwareDecoderFocusNode.isFoucsed.value,
-                  title: "硬件解码器 (--hwdec)",
-                  items: const {
-                    "mediacodec": "mediacodec",
-                    "auto": "auto",
-                    "auto-copy": "auto-copy",
-                    "no": "no",
-                  },
-                  value:
-                      AppSettingsController.instance.videoHardwareDecoder.value,
-                  onChanged: (e) {
-                    AppSettingsController.instance.setVideoHardwareDecoder(e);
-                    SmartDialog.showToast("重启生效");
-                  },
-                ),
-              ],
+        // 以下为 mpv 专用设置，ExoPlayer 模式下隐藏
+        if (isMpv) ...[
+          AppStyle.vGap32,
+          const Text(
+            "mpv 专用设置",
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ),
+          AppStyle.vGap16,
+          Obx(
+            () => SettingsItemWidget(
+              foucsNode: controller.hardwareDecodeFocusNode,
+              autofocus: controller.hardwareDecodeFocusNode.isFoucsed.value,
+              title: "硬件解码",
+              items: const {
+                0: "关",
+                1: "开",
+              },
+              value:
+                  AppSettingsController.instance.hardwareDecode.value ? 1 : 0,
+              onChanged: (e) {
+                AppSettingsController.instance
+                    .setHardwareDecode(e == 1 ? true : false);
+              },
+            ),
+          ),
+          AppStyle.vGap24,
+          Obx(
+            () => SettingsItemWidget(
+              foucsNode: controller.compatibleModeFocusNode,
+              autofocus: controller.compatibleModeFocusNode.isFoucsed.value,
+              title: "零拷贝硬解（高性能）",
+              items: const {
+                0: "关（兼容模式，推荐）",
+                1: "开（零拷贝，性能好）",
+              },
+              value: AppSettingsController.instance.playerCompatMode.value
+                  ? 1
+                  : 0,
+              onChanged: (e) {
+                AppSettingsController.instance
+                    .setPlayerCompatMode(e == 1 ? true : false);
+              },
+            ),
+          ),
+          AppStyle.vGap24,
+          Obx(
+            () => SettingsItemWidget(
+              foucsNode: controller.liveBufferModeFocusNode,
+              autofocus: controller.liveBufferModeFocusNode.isFoucsed.value,
+              title: "直播缓冲策略",
+              items: const {
+                0: "低延迟",
+                1: "平衡（推荐）",
+                2: "抗抖动",
+              },
+              value: AppSettingsController
+                  .instance.playerLiveBufferMode.value.index,
+              onChanged: (e) {
+                AppSettingsController.instance.setPlayerLiveBufferMode(
+                  LiveBufferMode.values[e],
+                );
+              },
+            ),
+          ),
+          AppStyle.vGap24,
+          Obx(
+            () => SettingsItemWidget(
+              foucsNode: controller.customPlayerOutputFocusNode,
+              autofocus:
+                  controller.customPlayerOutputFocusNode.isFoucsed.value,
+              title: "自定义输出驱动",
+              items: const {
+                0: "关",
+                1: "开",
+              },
+              value: AppSettingsController.instance.customPlayerOutput.value
+                  ? 1
+                  : 0,
+              onChanged: (e) {
+                AppSettingsController.instance
+                    .setCustomPlayerOutput(e == 1);
+              },
+            ),
+          ),
+          AppStyle.vGap24,
+          Obx(
+            () => Visibility(
+              visible:
+                  AppSettingsController.instance.customPlayerOutput.value,
+              child: Column(
+                children: [
+                  SettingsItemWidget(
+                    foucsNode: controller.videoOutputDriverFocusNode,
+                    autofocus:
+                        controller.videoOutputDriverFocusNode.isFoucsed.value,
+                    title: "视频输出驱动 (--vo)",
+                    items: const {
+                      "mediacodec_embed": "mediacodec_embed",
+                      "gpu": "gpu",
+                      "gpu-next": "gpu-next",
+                      "null": "null",
+                      "libmpv": "libmpv",
+                    },
+                    value:
+                        AppSettingsController.instance.videoOutputDriver.value,
+                    onChanged: (e) {
+                      AppSettingsController.instance.setVideoOutputDriver(e);
+                    },
+                  ),
+                  AppStyle.vGap24,
+                  SettingsItemWidget(
+                    foucsNode: controller.audioOutputDriverFocusNode,
+                    autofocus:
+                        controller.audioOutputDriverFocusNode.isFoucsed.value,
+                    title: "音频输出驱动 (--ao)",
+                    items: const {
+                      "audiotrack": "audiotrack",
+                      "opensles": "opensles",
+                      "aaudio": "aaudio",
+                      "pcm": "pcm",
+                      "null": "null",
+                    },
+                    value:
+                        AppSettingsController.instance.audioOutputDriver.value,
+                    onChanged: (e) {
+                      AppSettingsController.instance.setAudioOutputDriver(e);
+                    },
+                  ),
+                  AppStyle.vGap24,
+                  SettingsItemWidget(
+                    foucsNode: controller.videoHardwareDecoderFocusNode,
+                    autofocus: controller
+                        .videoHardwareDecoderFocusNode.isFoucsed.value,
+                    title: "硬件解码器 (--hwdec)",
+                    items: const {
+                      "mediacodec": "mediacodec (零拷贝)",
+                      "mediacodec-copy": "mediacodec-copy (兼容模式)",
+                      "auto": "auto",
+                      "no": "no (软解)",
+                    },
+                    value: AppSettingsController
+                        .instance.videoHardwareDecoder.value,
+                    onChanged: (e) {
+                      AppSettingsController.instance
+                          .setVideoHardwareDecoder(e);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
+    });
   }
 
   Widget buildFollowSettings() {

@@ -1091,7 +1091,7 @@ ${error?.stackTrace}''');
   }
 
   @override
-  void onClose() {
+  void onClose() async {
     WidgetsBinding.instance.removeObserver(this);
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
@@ -1099,6 +1099,7 @@ ${error?.stackTrace}''');
     liveDanmaku.stop();
     danmakuController = null;
     _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
-    super.onClose();
+    // 等待播放器（mpv）完全释放后再关闭控制器，避免页面关闭时播放器仍在运行
+    await super.onClose();
   }
 }

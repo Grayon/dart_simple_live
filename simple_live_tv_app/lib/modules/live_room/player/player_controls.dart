@@ -2,7 +2,6 @@ import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
@@ -17,15 +16,15 @@ import 'package:simple_live_tv_app/widgets/card/anchor_card.dart';
 import 'package:simple_live_tv_app/widgets/settings_item_widget.dart';
 import 'package:simple_live_tv_app/widgets/status/app_empty_widget.dart';
 
-Widget playerControls(VideoState videoState, LiveRoomController controller) {
-  return buildControls(videoState, controller);
+Widget playerControls(BuildContext context, LiveRoomController controller) {
+  return buildControls(context, controller);
 }
 
-Widget buildControls(VideoState videoState, LiveRoomController controller) {
+Widget buildControls(BuildContext context, LiveRoomController controller) {
   return Stack(
     children: [
       Container(),
-      buildDanmuView(videoState, controller),
+      buildDanmuView(context, controller),
       // 点击播放器打开设置
       Positioned.fill(
         child: GestureDetector(onTap: () => showPlayerSettings(controller)),
@@ -33,8 +32,8 @@ Widget buildControls(VideoState videoState, LiveRoomController controller) {
       Center(
         child: // 中间
             StreamBuilder(
-          stream: videoState.widget.controller.player.stream.buffering,
-          initialData: videoState.widget.controller.player.state.buffering,
+          stream: controller.player.bufferingStream,
+          initialData: controller.player.state.buffering,
           builder: (_, s) => Visibility(
             visible: s.data ?? false,
             child: SizedBox(
@@ -215,8 +214,8 @@ Widget buildControls(VideoState videoState, LiveRoomController controller) {
   );
 }
 
-Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
-  var padding = MediaQuery.of(videoState.context).padding;
+Widget buildDanmuView(BuildContext context, LiveRoomController controller) {
+  var padding = MediaQuery.of(context).padding;
   controller.danmakuView ??= DanmakuScreen(
     key: controller.globalDanmuKey,
     createdController: controller.initDanmakuController,
@@ -241,7 +240,7 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
                       AppSettingsController.instance.danmuBottomMargin.value,
                 )
               : EdgeInsets.zero,
-          child: controller.danmakuView!,
+          child: RepaintBoundary(child: controller.danmakuView!),
         ),
       ),
     ),
@@ -606,8 +605,6 @@ void showPlayerSettings(LiveRoomController controller) {
 }
 
 void showVideoInfo(LiveRoomController controller) {
-  final pp = controller.player.platform as dynamic;
-
   // 需要读取的 mpv 属性
   final props = [
     ('video-format', '视频编码'),
@@ -669,7 +666,7 @@ void showVideoInfo(LiveRoomController controller) {
               var results = <(String, String)>[];
               for (var (key, label) in props) {
                 try {
-                  var val = await pp.getProperty(key);
+                  var val = await controller.player.getProperty(key);
                   if (val != null && val.toString().isNotEmpty) {
                     results.add((label, val.toString()));
                   }
@@ -735,7 +732,11 @@ void showVideoInfo(LiveRoomController controller) {
       ],
     ),
   ).then((value) {
-    controller.focusNode.requestFocus();
+    // 视频信息面板是从设置面板内部打开的子对话框，
+    // 关闭时不能把焦点还给底层 KeyboardListener，
+    // 否则设置面板会失去焦点导致无法操作。
+    // 不调用 controller.focusNode.requestFocus()，
+    // 让 Flutter 焦点管理器自动将焦点恢复到设置面板。
   });
 }
 

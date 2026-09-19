@@ -76,6 +76,30 @@ extension LiveBufferModeX on LiveBufferMode {
   }
 }
 
+/// 播放器引擎
+/// - 0 [mpv]  media_kit (mpv)，功能最全，支持精细调优
+/// - 1 [exoPlayer]  ExoPlayer (Media3)，Android 原生，系统兼容性更好
+/// - 2 [ijk]  IJKPlayer (FFmpeg)，格式兼容性好，适合老设备/特殊格式
+enum PlayerEngine {
+  mpv,
+  exoPlayer,
+  ijk,
+}
+
+extension PlayerEngineX on PlayerEngine {
+  int toInt() => index;
+  String get label {
+    switch (this) {
+      case PlayerEngine.mpv:
+        return "mpv (功能全)";
+      case PlayerEngine.exoPlayer:
+        return "ExoPlayer (系统兼容好)";
+      case PlayerEngine.ijk:
+        return "IJKPlayer (格式兼容好)";
+    }
+  }
+}
+
 class AppSettingsController extends GetxController {
   static AppSettingsController get instance =>
       Get.find<AppSettingsController>();
@@ -190,11 +214,12 @@ class AppSettingsController extends GetxController {
       'mediacodec',
     );
 
-    highFpsCompat.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kHighFpsCompat, false);
-
     disableChannelSwitch.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDisableChannelSwitch, false);
+
+    playerEngine.value = PlayerEngine.values[
+        LocalStorageService.instance
+            .getValue(LocalStorageService.kPlayerEngine, 0)];
 
     autoUpdateFollowEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoUpdateFollowEnable, true);
@@ -461,7 +486,7 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kCustomPlayerOutput, e);
   }
 
-  var videoOutputDriver = "mediacodec_embed".obs;
+  var videoOutputDriver = "gpu".obs;
   void setVideoOutputDriver(String e) {
     videoOutputDriver.value = e;
     LocalStorageService.instance
@@ -475,17 +500,11 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kAudioOutputDriver, e);
   }
 
-  var videoHardwareDecoder = "mediacodec".obs;
+  var videoHardwareDecoder = "mediacodec-copy".obs;
   void setVideoHardwareDecoder(String e) {
     videoHardwareDecoder.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kVideoHardwareDecoder, e);
-  }
-
-  var highFpsCompat = false.obs;
-  void setHighFpsCompat(bool e) {
-    highFpsCompat.value = e;
-    LocalStorageService.instance.setValue(LocalStorageService.kHighFpsCompat, e);
   }
 
   var disableChannelSwitch = false.obs;
@@ -493,5 +512,12 @@ class AppSettingsController extends GetxController {
     disableChannelSwitch.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kDisableChannelSwitch, e);
+  }
+
+  var playerEngine = PlayerEngine.mpv.obs;
+  void setPlayerEngine(PlayerEngine e) {
+    playerEngine.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kPlayerEngine, e.toInt());
   }
 }

@@ -903,6 +903,9 @@ class PlayerController extends BaseController
     }
   }
 
+  /// 标记播放器是否已释放，防止 onClose 与 macOS 退出回调重复 dispose
+  bool _playerDisposed = false;
+
   @override
   void onClose() async {
     Log.w("播放器关闭");
@@ -910,10 +913,24 @@ class PlayerController extends BaseController
     if (smallWindowState.value) {
       await exitSmallWindow();
     }
+    await disposePlayerForTermination();
+    super.onClose();
+  }
+
+  /// 释放播放器资源：取消订阅、停止播放、释放 mpv 实例。
+  /// - 页面关闭（onClose）和应用退出（macOS applicationShouldTerminate）共用此方法
+  /// - 必须在 mpv core 线程仍在运行时完成 dispose，否则应用退出时主线程 munmap
+  ///   释放内存后 mpv 线程访问已释放地址导致 SIGSEGV
+  Future<void> disposePlayerForTermination() async {
+    if (_playerDisposed) return;
+    _playerDisposed = true;
     disposeStream();
     disposeDanmakuController();
     await resetSystem();
-    await player.dispose();
-    super.onClose();
+    try {
+      await player.dispose();
+    } catch (e) {
+      Log.e("播放器释放失败: $e", StackTrace.current);
+    }
   }
 }

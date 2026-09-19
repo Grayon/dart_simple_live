@@ -4,11 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
-import 'package:simple_live_tv_app/app/log.dart';
 import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
+import 'package:simple_live_tv_app/modules/live_room/player/player_video.dart';
 import 'package:simple_live_tv_app/modules/live_room/player/player_controls.dart';
 
 class LiveRoomPage extends GetView<LiveRoomController> {
@@ -52,14 +51,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     if (key is KeyUpEvent) {
       return;
     }
-    Log.logPrint(key);
 
-    // if (key.logicalKey == LogicalKeyboardKey.escape ||
-    //     key.logicalKey == LogicalKeyboardKey.backspace ||
-    //     key.logicalKey == LogicalKeyboardKey.goBack) {
-    //   // Get.back();
-    //   return;
-    // }
     // 点击OK、Enter、Select键时显示/隐藏控制器
     if (key.logicalKey == LogicalKeyboardKey.select ||
         key.logicalKey == LogicalKeyboardKey.enter ||
@@ -134,18 +126,18 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     }
     return Stack(
       children: [
-        Video(
-          key: controller.globalPlayerKey,
-          controller: controller.videoController,
-          pauseUponEnteringBackgroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
-          resumeUponEnteringForegroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
-          controls: (state) {
-            return playerControls(state, controller);
-          },
-          aspectRatio: aspectRatio,
-          fit: boxFit,
+        PlayerVideo(
+          key: controller.globalPlayerVideoKey,
+          player: controller.player,
+          config: PlayerVideoConfig(
+            pauseOnBackground:
+                AppSettingsController.instance.playerAutoPause.value,
+            resumeOnForeground:
+                AppSettingsController.instance.playerAutoPause.value,
+            aspectRatio: aspectRatio,
+            fit: boxFit,
+            controlsBuilder: (ctx) => playerControls(ctx, controller),
+          ),
         ),
         Obx(
           () => Visibility(
