@@ -1026,6 +1026,12 @@ ${error?.stackTrace}''');
     if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
       isBackground = false;
+      // canvas_danmaku 在 App 进入后台(paused)时会自行 pause() 飘屏弹幕，但该插件的
+      // didChangeAppLifecycleState 只处理了 paused、没有处理 resumed，自己从不调用
+      // resume()，导致内部 _running 永久为 false；回前台后新弹幕在 addDanmaku 入口被
+      // `if (!_running) return` 丢弃，飘屏就此消失（iOS 必现，Android 多进画中画规避）。
+      // 这里在回前台时显式恢复渲染（resume 内部自带 !_running 判断，可重复安全调用）。
+      danmakuController?.resume();
     } else
     // 桌面端窗口被遮挡（macOS inactive/hidden）：不清空弹幕，只阻断新增，
     // 避免遮挡期间弹幕在队列堆积、切回前台一次性 flush 导致卡顿
