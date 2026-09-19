@@ -20,7 +20,7 @@ dependencies:
   logger: ^2.6.2 #日志
   intl: ^0.20.2 #国际化
   qr_flutter: ^4.1.0 #二维码生成
-  dynamic_color: ^1.8.1 #动态颜色
+  dynamic_color: 1.8.1 #动态颜色（锁版本：1.9.0 的 android build.gradle.kts 未应用 kotlin 插件却用 kotlin{} DSL，导致 Gradle 编译失败）
   path: any
   collection: any
   udp: ^5.0.3 #UDP
