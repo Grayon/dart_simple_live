@@ -37,7 +37,8 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
   private lateinit var appContext: Context
 
   private var player: ExoPlayer? = null
-  private var textureEntry: TextureRegistry.SurfaceProducer? = null
+  private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
+  private var videoSurface: Surface? = null
   private var eventSink: EventChannel.EventSink? = null
   private var currentUrl: String? = null
 
@@ -216,9 +217,15 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
   private fun createPlayer(): Long {
     releasePlayer()
 
-    // 创建 Flutter Texture 入口
-    val entry = textureRegistry.createSurfaceProducer()
+    // 创建 Flutter Texture 入口。
+    // 用旧版 SurfaceTexture 路径（与 pure_live 的 better_player/fijk 一致）：
+    // 新版 createSurfaceProducer()(ImageReader/HardwareBuffer) 在部分 Android TV +
+    // Impeller 下，解码帧约 1 秒填满 Surface 缓冲队列后消费端不再取帧，表现为“画面
+    // 卡死但音频继续播放”；SurfaceTexture 走成熟的 GLES 外部纹理桥，无此问题。
+    val entry = textureRegistry.createSurfaceTexture()
     textureEntry = entry
+    val surface = Surface(entry.surfaceTexture())
+    videoSurface = surface
 
     // 解码器工厂：启用 fallback，解码器选择完全使用 media3 默认策略。
     // 对齐 pure_live(better_player)：DefaultRenderersFactory 默认就硬件解码器优先，
@@ -252,25 +259,9 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       .build()
       .also { it.addListener(playerListener) }
 
-    // 立即绑定 Surface（SurfaceProducer 创建后 surface 已可用）
-    entry.surface?.let { surface ->
-      player?.setVideoSurface(surface)
-    }
-
-    // Surface 重建时重新绑定
-    entry.setCallback(
-      object : TextureRegistry.SurfaceProducer.Callback {
-        override fun onSurfaceCreated() {
-          entry.surface?.let { surface ->
-            player?.setVideoSurface(surface)
-          }
-        }
-
-        override fun onSurfaceDestroyed() {
-          player?.clearVideoSurface()
-        }
-      }
-    )
+    // SurfaceTexture 生命周期稳定（不会中途销毁重建），创建后一次性绑定即可，
+    // 无需 SurfaceProducer 那套 onSurfaceCreated/onSurfaceDestroyed 回调。
+    player?.setVideoSurface(surface)
 
     return entry.id()
   }
@@ -619,6 +610,8 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       it.release()
     }
     player = null
+    videoSurface?.release()
+    videoSurface = null
     textureEntry?.release()
     textureEntry = null
     currentUrl = null

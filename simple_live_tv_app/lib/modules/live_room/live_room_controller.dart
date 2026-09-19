@@ -521,6 +521,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
       isBackground = false;
+      // canvas_danmaku 进后台自行 pause() 后从不 resume()，回前台内部 _running 仍为
+      // false，新弹幕在 addDanmaku 入口被丢弃导致飘屏消失。显式恢复渲染。
+      danmakuController?.resume();
       // 返回前台时恢复播放
       if (_stoppedForBackground) {
         _stoppedForBackground = false;

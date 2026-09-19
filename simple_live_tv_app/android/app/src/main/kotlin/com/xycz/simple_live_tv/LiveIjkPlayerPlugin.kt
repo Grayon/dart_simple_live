@@ -5,6 +5,7 @@ import android.media.MediaCodecList
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -23,7 +24,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var appContext: Context
 
     private var player: IjkMediaPlayer? = null
-    private var textureEntry: TextureRegistry.SurfaceProducer? = null
+    private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
+    private var videoSurface: Surface? = null
     private var eventSink: EventChannel.EventSink? = null
     private var currentUrl: String? = null
 
@@ -223,9 +225,15 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun createPlayer(logLevel: Int): Long {
         releasePlayer()
 
-        // 创建 Flutter Texture 入口
-        val entry = textureRegistry.createSurfaceProducer()
+        // 创建 Flutter Texture 入口。
+        // 用旧版 SurfaceTexture 路径（与 pure_live 的 better_player/fijk 一致）：
+        // 新版 createSurfaceProducer()(ImageReader/HardwareBuffer) 在部分 Android TV +
+        // Impeller 下，解码帧约 1 秒填满 Surface 缓冲队列后消费端不再取帧，表现为“画面
+        // 卡死但音频继续播放”；SurfaceTexture 走成熟的 GLES 外部纹理桥，无此问题。
+        val entry = textureRegistry.createSurfaceTexture()
         textureEntry = entry
+        val surface = Surface(entry.surfaceTexture())
+        videoSurface = surface
 
         val p = IjkMediaPlayer()
 
@@ -258,25 +266,9 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
         player = p
 
-        // 绑定 Surface
-        entry.surface?.let { surface ->
-            p.setSurface(surface)
-        }
-
-        // Surface 重建时重新绑定
-        entry.setCallback(
-            object : TextureRegistry.SurfaceProducer.Callback {
-                override fun onSurfaceCreated() {
-                    entry.surface?.let { surface ->
-                        player?.setSurface(surface)
-                    }
-                }
-
-                override fun onSurfaceDestroyed() {
-                    player?.setSurface(null)
-                }
-            }
-        )
+        // SurfaceTexture 生命周期稳定（不会中途销毁重建），创建后一次性绑定即可，
+        // 无需 SurfaceProducer 那套 onSurfaceCreated/onSurfaceDestroyed 回调。
+        p.setSurface(surface)
 
         return entry.id()
     }
@@ -340,7 +332,7 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
         // reset() 会清除 native 层的 surface 绑定和所有 player 选项，
         // 必须重新绑定 Surface、重新应用选项（否则硬解失效、无视频画面）。
-        textureEntry?.surface?.let { surface ->
+        videoSurface?.let { surface ->
             p.setSurface(surface)
         }
         applyPlayerOptions(p)
@@ -470,6 +462,8 @@ class LiveIjkPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             it.release()
         }
         player = null
+        videoSurface?.release()
+        videoSurface = null
         textureEntry?.release()
         textureEntry = null
         currentUrl = null
