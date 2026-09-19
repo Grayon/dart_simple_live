@@ -41,5 +41,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- TV 端关闭 Impeller，强制回退 Skia/OpenGL ES 渲染后端。
+             media_kit(mpv) 的视频纹理走 SurfaceProducer：Impeller+Vulkan 下承载为
+             HardwareBuffer/Image 新链路，在部分 Android TV GPU/驱动上 2K 高码率掉帧/
+             呈现异常；关闭 Impeller 后 SurfaceProducer 回退为成熟的 SurfaceTexture/GLES
+             承载（与 libmpv 的 GLES 渲染器原生匹配），修复 mpv 掉帧。自研 Exo/IJK 已
+             直接使用 createSurfaceTexture，不受此项影响。 -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
 </manifest>
