@@ -17,8 +17,6 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
-import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -222,41 +220,27 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val entry = textureRegistry.createSurfaceProducer()
     textureEntry = entry
 
-    // 解码器工厂：启用 fallback + 自定义 MediaCodecSelector 强制优先硬件解码器
-    // 默认排序可能把 Google 软解 (c2.android.avc.decoder, max 2048x2048) 排在
-    // MTK 硬解 (c2.mtk.avc.decoder, max 4096x2304) 前面，导致 2K/4K 初始化失败
+    // 解码器工厂：启用 fallback，解码器选择完全使用 media3 默认策略。
+    // 对齐 pure_live(better_player)：DefaultRenderersFactory 默认就硬件解码器优先，
+    // 并内置各厂商 SoC 的 workaround 表，首选解码器初始化失败时按链回退。
+    // 不再自定义 MediaCodecSelector 按名字前缀强制置顶——旧实现会绕过 media3 的
+    // 设备 workaround，可能钉死在“标称支持 2K、实际有 bug”的 vendor 解码器上，
+    // 而这种运行期静默卡死不在 enableDecoderFallback 的覆盖范围内。
     val renderersFactory = DefaultRenderersFactory(appContext)
       .setEnableDecoderFallback(true)
-      .setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-        val infos = MediaCodecUtil.getDecoderInfos(
-          mimeType, requiresSecureDecoder, requiresTunnelingDecoder
-        )
-        // 硬件解码器优先：c2.mtk / c2.qti / OMX.qcom / OMX.MTK 等排前面
-        infos.sortedByDescending { info ->
-          val name = info.name
-          val isHw = info.hardwareAccelerated
-          val isVendorHw = isHw && (
-            name.startsWith("c2.mtk") || name.startsWith("c2.qti") ||
-            name.startsWith("OMX.qcom") || name.startsWith("OMX.MTK") ||
-            name.startsWith("OMX.hisi") || name.startsWith("c2.exynos")
-          )
-          val isGoogleSw = name.startsWith("c2.android.") || name.startsWith("OMX.google.")
-          when {
-            isVendorHw -> 3
-            isHw -> 2
-            !isGoogleSw -> 1
-            else -> 0
-          }
-        }
-      }
 
-    // 缓冲控制：直播流小缓冲，低延迟
+    // 缓冲控制：对齐 pure_live better_player 的 BetterPlayerBufferingConfiguration
+    // 默认值（实测 2K 高码率直播流畅）。
+    // 旧值 1000/5000/500/1000 垫子太薄，2K(8-20Mbps) 叠加 CDN 抖动必被打穿，
+    // 反复 underrun→rebuffer。大水位让加载器持续攒出数十秒缓冲吸收抖动。
+    // targetBufferBytes 保持默认 C.LENGTH_UNSET(-1，按分辨率/码率自适应封顶)，
+    // 因此实际内存不会随 maxBufferMs=109分钟 真的膨胀，时长水位只是“尽量不停传”。
     val loadControl = DefaultLoadControl.Builder()
       .setBufferDurationsMs(
-        1000,   // minBufferMs: 最少缓冲1s
-        5000,   // maxBufferMs: 最多5s
-        500,    // bufferForPlaybackMs: 缓冲500ms就开始播放
-        1000    // bufferForPlaybackAfterRebufferMs: rebuffer后1s恢复
+        25000,    // minBufferMs
+        6553600,  // maxBufferMs（better_player 默认 ~109 分钟）
+        3000,     // bufferForPlaybackMs
+        6000      // bufferForPlaybackAfterRebufferMs
       )
       .build()
 
@@ -300,12 +284,15 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // DefaultHttpDataSource 基于 HttpURLConnection，对 FLV 直播流的 chunked 长连接
     // 处理有 bug（EOFException: \n not found: size=0 content=）
     // OkHttp 对长连接和流式响应兼容性更好
-    // 注意：readTimeout 必须设大（0=无限），直播流中间可能几秒没有新数据，
-    // 短超时会导致连接被断开，视频信息能解析但缓冲为0无法播放
+    //
+    // 超时必须是有限值（不能为 0=无限等待）：直播连接中途静默假死/CDN 长尾不发数据时，
+    // 无限 readTimeout 会让加载线程永久阻塞，Exo 既收不到数据也收不到异常，5s 缓冲耗尽后
+    // 画面永久冻结且无法触发上层重试。8s 无数据即抛错，进入现有的同 URL 重试/换线路逻辑。
+    // （对齐 pure_live DefaultHttpDataSource 的 8s/8s，但保留 OkHttp 规避 FLV EOF。）
     val okHttpClient = OkHttpClient.Builder()
-      .connectTimeout(5, TimeUnit.SECONDS)
-      .readTimeout(0, TimeUnit.MILLISECONDS)
-      .writeTimeout(0, TimeUnit.MILLISECONDS)
+      .connectTimeout(8, TimeUnit.SECONDS)
+      .readTimeout(8, TimeUnit.SECONDS)
+      .writeTimeout(8, TimeUnit.SECONDS)
       .retryOnConnectionFailure(true)
       .build()
 
@@ -322,25 +309,13 @@ class LiveExoPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val mediaSourceFactory = DefaultMediaSourceFactory(appContext)
       .setDataSourceFactory(dataSourceFactory)
 
-    // FLV 直播流不走 HLS/DASH LiveConfiguration，用普通 ProgressiveMediaSource
-    // LiveConfiguration 只对 HLS/DASH 有效，对 progressive FLV 反而导致缓冲异常
-    val isFlv = url.contains(".flv", ignoreCase = true) ||
-        url.contains("flv", ignoreCase = true)
-
-    val mediaItem = if (isFlv) {
-      MediaItem.fromUri(Uri.parse(url))
-    } else {
-      MediaItem.Builder()
-        .setUri(Uri.parse(url))
-        .setLiveConfiguration(
-          MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(2000)
-            .setMaxPlaybackSpeed(1.04f)
-            .setMinPlaybackSpeed(0.96f)
-            .build()
-        )
-        .build()
-    }
+    // 统一用裸 MediaItem，媒体类型交给 DefaultMediaSourceFactory 自动分派
+    // （.m3u8→HlsMediaSource，.flv/其它→ProgressiveMediaSource+FlvExtractor）。
+    // 对齐 pure_live(better_player)：不设置任何 LiveConfiguration / targetOffset /
+    // 播放速度微调。旧实现对非 FLV 强制 targetOffset=2s + 0.96~1.04 变速，在本就很薄的
+    // 缓冲上进一步压缩抗抖动空间并周期性变速追赶，反而加剧卡顿。
+    // 直播延迟由前面的大缓冲水位平滑吸收，不靠压直播边或变速实现。
+    val mediaItem = MediaItem.fromUri(Uri.parse(url))
 
     val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
     p.setMediaSource(mediaSource)
