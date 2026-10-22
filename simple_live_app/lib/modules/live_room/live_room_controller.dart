@@ -180,6 +180,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   void refreshRoom() {
     //messages.clear();
+    // 手动刷新会重新走完整加载流程，中止可能仍在进行的断流自愈
+    _recoveringStream = false;
+    streamInterrupted.value = false;
     superChats.clear();
     liveDanmaku.stop();
 
@@ -292,6 +295,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       SmartDialog.showLoading(msg: "");
       loadError.value = false;
       error = null;
+      streamInterrupted.value = false;
       update();
       addSysMsg("正在读取直播间信息");
       detail.value = await site.liveSite.getRoomDetail(roomId: roomId);
@@ -450,9 +454,21 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     await player.jump(currentLineIndex);
   }
 
+  /// 直播流中断标记：播着播着断流（平台接口仍确认主播在播）时显示"点击刷新"，
+  /// 而不是错误地显示"未开播"
+  var streamInterrupted = false.obs;
+
+  /// 是否正在执行断流自愈流程，期间忽略播放器 completed/error 事件，避免重入
+  bool _recoveringStream = false;
+
+  /// 页面是否已关闭，关闭后自愈流程不再操作播放器
+  bool _pageClosed = false;
+
   @override
   void mediaEnd() async {
     super.mediaEnd();
+    // 自愈流程进行中时，底层 EOF/error 事件由自愈流程统一调度
+    if (_recoveringStream) return;
     if (mediaErrorRetryCount < 2) {
       Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
@@ -466,20 +482,21 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
 
     Log.d("播放结束");
-    // 遍历线路，如果全部链接都断开就是直播结束了
-    if (playUrls.length - 1 == currentLineIndex) {
-      liveStatus.value = false;
-    } else {
+    // 遍历线路，还有其他线路时先切换线路
+    if (playUrls.length - 1 != currentLineIndex) {
       changePlayLine(currentLineIndex + 1);
-
-      //setPlayer();
+      return;
     }
+    // 最后一条线路也 EOF：直播流中途断开不一定是下播
+    // （CDN 断流、边缘节点重连、推流端抖动都会让 mpv 收到 EOF），走断流自愈
+    handleStreamInterrupt();
   }
 
   int mediaErrorRetryCount = 0;
   @override
   void mediaError(String error) async {
     super.mediaEnd();
+    if (_recoveringStream) return;
     if (mediaErrorRetryCount < 2) {
       Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
       if (mediaErrorRetryCount == 1) {
@@ -493,13 +510,133 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
 
     if (playUrls.length - 1 == currentLineIndex) {
-      errorMsg.value = "播放失败";
-      SmartDialog.showToast("播放失败:$error");
+      // 最后一条线路也连续失败：旧 CDN 签名过期、节点故障等场景同样可以自愈
+      Log.w("最后线路播放失败，进入断流自愈：$error");
+      handleStreamInterrupt();
     } else {
       //currentLineIndex += 1;
       //setPlayer();
       changePlayLine(currentLineIndex + 1);
     }
+  }
+
+  /// 断流自愈：
+  /// 播放中收到 EOF/错误时，先向平台接口确认真实开播状态，再重新解析播放地址重连。
+  /// 只有接口明确返回"未开播"才标记为未开播，避免 CDN 断流被误判成主播下播
+  /// （此前播放中途断流重试 2 次后就直接 liveStatus=false，画面变成"未开播"）。
+  void handleStreamInterrupt() async {
+    if (_recoveringStream) return;
+    // 已经确认下播后忽略杂散的播放器事件，避免重复请求接口
+    if (!liveStatus.value) return;
+    _recoveringStream = true;
+    const maxAttempts = 3;
+    try {
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (_pageClosed || !_recoveringStream) return;
+        Log.d("直播流中断，开始第$attempt/$maxAttempts次自动恢复");
+        addSysMsg("直播连接中断，正在自动恢复($attempt/$maxAttempts)");
+
+        // 1. 重新获取直播间信息，向平台确认真实开播状态
+        LiveRoomDetail? newDetail;
+        try {
+          newDetail = await site.liveSite.getRoomDetail(roomId: roomId);
+        } catch (e) {
+          // 状态接口失败（反爬/限流/网络抖动）时保守按"仍在播"处理
+          Log.w("自动恢复：直播间信息获取失败，按仍在播处理：$e");
+        }
+        if (newDetail != null) {
+          detail.value = newDetail;
+          online.value = newDetail.online;
+          if (!newDetail.status && !newDetail.isRecord) {
+            Log.d("接口确认主播已下播");
+            liveStatus.value = false;
+            return;
+          }
+        }
+
+        // 2. 重新解析清晰度与播放地址（旧 CDN 地址/签名可能已经失效）
+        var resumed = false;
+        try {
+          final qualities =
+              await site.liveSite.getPlayQualites(detail: detail.value!);
+          if (qualities.isNotEmpty) {
+            // 尽量保持用户当前选择的清晰度，清晰度列表顺序可能变化需按名称匹配
+            var qualityIndex = 0;
+            if (currentQuality >= 0 && currentQuality < qualites.length) {
+              final currentName = qualites[currentQuality].quality;
+              final match =
+                  qualities.indexWhere((q) => q.quality == currentName);
+              qualityIndex = match >= 0 ? match : currentQuality;
+              if (qualityIndex >= qualities.length) qualityIndex = 0;
+            }
+            final playUrl = await site.liveSite.getPlayUrls(
+              detail: detail.value!,
+              quality: qualities[qualityIndex],
+            );
+            if (playUrl.urls.isNotEmpty) {
+              qualites.value = qualities;
+              currentQuality = qualityIndex;
+              currentQualityInfo.value = qualities[qualityIndex].quality;
+              playUrls.value = playUrl.urls;
+              playHeaders = playUrl.headers;
+              currentLineIndex = 0;
+              currentLineInfo.value = "线路1";
+              mediaErrorRetryCount = 0;
+              streamInterrupted.value = false;
+              await initPlaylist();
+
+              // 3. 等待画面真正恢复（连续稳定播放 3 秒才算成功）
+              resumed = await _waitPlaybackResume(const Duration(seconds: 20));
+            }
+          }
+        } catch (e) {
+          Log.w("自动恢复：重新打开播放地址失败：$e");
+        }
+
+        if (resumed) {
+          Log.d("直播流自动恢复成功");
+          addSysMsg("直播已自动恢复");
+          return;
+        }
+        if (attempt < maxAttempts) {
+          await Future.delayed(const Duration(seconds: 3));
+        }
+      }
+
+      // 多次恢复均失败：不判定为未开播，提示中断，由用户手动刷新
+      Log.w("直播流自动恢复失败，等待手动刷新");
+      streamInterrupted.value = true;
+      SmartDialog.showToast("直播连接中断，请刷新恢复");
+    } finally {
+      _recoveringStream = false;
+    }
+  }
+
+  /// 等待播放器恢复：playing 且已有画面尺寸，并连续稳定 3 秒。
+  Future<bool> _waitPlaybackResume(Duration timeout) async {
+    final deadline = DateTime.now().add(timeout);
+    DateTime? stableSince;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_pageClosed) return false;
+      if (player.state.playing && (player.state.width ?? 0) > 0) {
+        stableSince ??= DateTime.now();
+        if (DateTime.now().difference(stableSince) >=
+            const Duration(seconds: 3)) {
+          return true;
+        }
+      } else {
+        stableSince = null;
+      }
+    }
+    return false;
+  }
+
+  /// 自愈失败后用户点击"直播连接中断，点击刷新"手动恢复
+  void manualRecover() {
+    _recoveringStream = false;
+    streamInterrupted.value = false;
+    refreshRoom();
   }
 
   /// 读取SC
@@ -998,6 +1135,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     // 停止播放
     await player.stop();
 
+    // 切换房间会重新走完整加载流程，中止可能仍在进行的断流自愈
+    _recoveringStream = false;
+    streamInterrupted.value = false;
+
     // 刷新信息
     loadData();
   }
@@ -1092,6 +1233,7 @@ ${error?.stackTrace}''');
 
   @override
   void onClose() async {
+    _pageClosed = true;
     WidgetsBinding.instance.removeObserver(this);
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();

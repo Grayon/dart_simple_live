@@ -272,15 +272,45 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           wakelock: false,
         ),
         Obx(
-          () => Visibility(
-            visible: !controller.liveStatus.value,
-            child: const Center(
-              child: Text(
-                "未开播",
-                style: TextStyle(fontSize: 16, color: Colors.white),
+          () {
+            // 断流自愈失败：显示中断提示，点击手动刷新
+            if (controller.streamInterrupted.value) {
+              return Center(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: controller.manualRecover,
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.wifi_off_rounded,
+                        color: Colors.white70,
+                        size: 36,
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        "直播连接中断，点击刷新",
+                        style:
+                            TextStyle(fontSize: 16, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            // 只有接口明确返回未开播时才显示"未开播"，
+            // 播放中途断流不再误显示未开播（见 LiveRoomController.handleStreamInterrupt）
+            return Visibility(
+              visible: controller.detail.value != null &&
+                  !controller.liveStatus.value,
+              child: const Center(
+                child: Text(
+                  "未开播",
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ],
     );
