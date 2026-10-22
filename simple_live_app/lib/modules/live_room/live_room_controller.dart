@@ -429,7 +429,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     setPlayer();
   }
 
-  void initPlaylist() async {
+  Future<void> initPlaylist() async {
     currentLineInfo.value = "线路${currentLineIndex + 1}";
     errorMsg.value = "";
 
@@ -1241,7 +1241,9 @@ ${error?.stackTrace}''');
     liveDanmaku.stop();
     danmakuController = null;
     _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
-    // 等待播放器（mpv）完全释放后再关闭控制器，避免页面关闭时播放器仍在运行
-    await super.onClose();
+    // 播放器（mpv）释放由父类 onClose 内的 disposePlayerForTermination 完成；
+    // GetxController.onClose 是 void 无法 await，macOS 正常退出另有 lifecycle
+    // 通道在 applicationShouldTerminate 中显式 await 释放，避免退出时 SIGSEGV
+    super.onClose();
   }
 }
