@@ -28,7 +28,9 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '0.5',
           'audio-buffer': '0.05',
-          'framedrop': 'decode+vo+none',
+          // mpv framedrop 合法值仅 no/vo/decoder/decoder+vo，
+          // 旧值 decode+vo+none 会报 fatal "Invalid value" 导致配置完全不生效
+          'framedrop': 'decoder+vo',
           'swapchain-depth': '1',
           'cache-default': '2097152',
           'cache-backbuffer': '524288',
@@ -38,7 +40,8 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '2',
           'audio-buffer': '0.2',
-          'framedrop': 'vo+none',
+          // 旧值 vo+none 非法，mpv 直接拒绝整个 framedrop 选项
+          'framedrop': 'vo',
           'swapchain-depth': '2',
           'cache-default': '8388608',
           'cache-backbuffer': '2097152',
@@ -48,7 +51,7 @@ extension LiveBufferModeX on LiveBufferMode {
         return const {
           'cache-secs': '8',
           'audio-buffer': '0.4',
-          'framedrop': 'vo+none',
+          'framedrop': 'vo',
           'swapchain-depth': '3',
           'cache-default': '33554432',
           'cache-backbuffer': '8388608',
