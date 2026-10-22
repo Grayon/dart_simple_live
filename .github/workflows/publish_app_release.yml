@@ -197,6 +197,16 @@ jobs:
         run: |
           cd simple_live_app
           flutter_distributor package --platform macos --targets zip --skip-clean
+          # flutter_distributor 偶现内部构建失败但退出码为 0，显式校验 zip 产物，
+          # 避免 upload-artifact 静默 warning 导致 mac 包丢失（job 仍显示成功）
+          echo "===== build/dist 产物 ====="
+          find build/dist -type f -print
+          if [ -z "$(find build/dist -type f -name '*.zip' -print -quit)" ]; then
+            echo "::error::macOS zip 未生成，flutter_distributor 打包异常"
+            echo "===== build/macos/Products ====="
+            find build/macos/Build/Products -maxdepth 3 2>/dev/null | head -30
+            exit 1
+          fi
 
       # 上传MAC至Artifacts
       - name: Upload MacOS to Artifacts
@@ -204,6 +214,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: mac
+          if-no-files-found: error
           path: |
             simple_live_app/build/dist/**/*.zip
 

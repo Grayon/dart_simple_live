@@ -25,6 +25,14 @@ import json
 import re
 import sys
 
+# Windows 终端/Git Bash 默认代码页可能是 cp1252，脚本中的中文 print 会抛
+# UnicodeEncodeError 直接中断 CI（GitHub windows runner 实测）。强制 UTF-8 输出。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 def parse_tag(tag):
     """从 tag 中提取纯版本号字符串。
