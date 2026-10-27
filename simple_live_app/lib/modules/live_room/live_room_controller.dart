@@ -13,6 +13,7 @@ import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
+import 'package:simple_live_app/app/flv/flv_splice_relay.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
@@ -429,17 +430,94 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     setPlayer();
   }
 
+  /// 当前播放列表对应的 FLV 关键帧拼接中继（每个线路一个），在重新建单/切房/
+  /// 关闭页面时统一释放
+  final List<FlvSpliceRelay> _flvRelays = <FlvSpliceRelay>[];
+
+  Future<void> _closeFlvRelays() async {
+    if (_flvRelays.isEmpty) return;
+    final relays = List<FlvSpliceRelay>.of(_flvRelays);
+    _flvRelays.clear();
+    await Future.wait(relays.map((relay) => relay.close()));
+  }
+
+  /// 解析 FLV 地址上的 `expire` 租约（斗鱼为时长秒数，如 expire=300），返回
+  /// 提前续约时间点，策略与 pure_live_TV 一致：提前 min(expire/4, 90s)。
+  /// 无租约、非 FLV、或值像绝对时间戳（>24h）时返回 null，走直连。
+  DateTime? _flvRefreshAt(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.path.toLowerCase().endsWith('.flv')) return null;
+    final leaseSeconds = int.tryParse(uri.queryParameters['expire'] ?? '');
+    if (leaseSeconds == null || leaseSeconds <= 30 || leaseSeconds > 24 * 60 * 60) {
+      return null;
+    }
+    final leadMs = (leaseSeconds * 1000) ~/ 4;
+    const leadCapMs = 90 * 1000;
+    final lead = Duration(milliseconds: leadMs < leadCapMs ? leadMs : leadCapMs);
+    return DateTime.now().add(Duration(seconds: leaseSeconds)).subtract(lead);
+  }
+
   Future<void> initPlaylist() async {
     currentLineInfo.value = "线路${currentLineIndex + 1}";
     errorMsg.value = "";
 
-    final mediaList = playUrls.map((url) {
-      var finalUrl = url;
-      if (AppSettingsController.instance.playerForceHttps.value) {
+    // 重建播放列表前先关闭旧中继，避免端口与上游连接泄漏
+    await _closeFlvRelays();
+
+    final forceHttps =
+        AppSettingsController.instance.playerForceHttps.value;
+    final headers = playHeaders ?? const <String, String>{};
+    final mediaList = <Media>[];
+
+    for (var lineIndex = 0; lineIndex < playUrls.length; lineIndex++) {
+      var finalUrl = playUrls[lineIndex];
+      if (forceHttps) {
         finalUrl = finalUrl.replaceAll("http://", "https://");
       }
-      return Media(finalUrl, httpHeaders: playHeaders);
-    }).toList();
+
+      var inputUrl = finalUrl;
+      Map<String, String>? inputHeaders = playHeaders;
+      final refreshAt = _flvRefreshAt(finalUrl);
+      if (FlvSpliceRelay.appliesTo(finalUrl, refreshAt: refreshAt)) {
+        try {
+          final relay = await FlvSpliceRelay.start(
+            FlvLeasedSource(Uri.parse(finalUrl), refreshAt: refreshAt),
+            headers: headers,
+            renew: (current) async {
+              final playUrl = await site.liveSite.getPlayUrls(
+                detail: detail.value!,
+                quality: qualites[currentQuality],
+              );
+              if (playUrl.urls.isEmpty) {
+                throw StateError('FLV 续期未获取到播放地址');
+              }
+              final renewed = lineIndex >= 0 &&
+                      lineIndex < playUrl.urls.length
+                  ? playUrl.urls[lineIndex]
+                  : playUrl.urls.first;
+              var nextUrl = renewed;
+              if (forceHttps) {
+                nextUrl = nextUrl.replaceAll("http://", "https://");
+              }
+              return FlvLeasedSource(
+                Uri.parse(nextUrl),
+                refreshAt: _flvRefreshAt(nextUrl),
+              );
+            },
+          );
+          _flvRelays.add(relay);
+          inputUrl = relay.inputUri.toString();
+          // 鉴权头由中继自己带给上游；交给播放器访问 loopback 只会泄漏进
+          // 原生播放器的请求日志
+          inputHeaders = null;
+          Log.i("FLV 中继已启用: ${Uri.parse(finalUrl).host} 线路${lineIndex + 1}");
+        } catch (e) {
+          Log.w("FLV 中继启动失败，回退直连: $e");
+        }
+      }
+
+      mediaList.add(Media(inputUrl, httpHeaders: inputHeaders));
+    }
 
     // 初始化播放器并设置 ao 参数
     await initializePlayer();
@@ -1134,6 +1212,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     // 停止播放
     await player.stop();
+    await _closeFlvRelays();
 
     // 切换房间会重新走完整加载流程，中止可能仍在进行的断流自愈
     _recoveringStream = false;
@@ -1238,6 +1317,7 @@ ${error?.stackTrace}''');
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
 
+    unawaited(_closeFlvRelays());
     liveDanmaku.stop();
     danmakuController = null;
     _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
