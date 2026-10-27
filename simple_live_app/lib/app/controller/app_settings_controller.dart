@@ -21,53 +21,92 @@ enum LiveBufferMode {
 extension LiveBufferModeX on LiveBufferMode {
   int toInt() => index;
 
-  /// mpv property presets (Android only).
+  /// mpv 属性预设（全平台生效，应用于每次起播前）。
+  ///
+  /// 直播缓冲契约参考 pure_live_TV 的实践：
+  /// - 时间+字节双上限（cache-secs / demuxer-max-bytes），先到者生效
+  /// - cache-pause=yes：缓存耗尽时短暂暂停等待补水而非直接花屏/断流
+  /// - FFmpeg 协议层自动重连：CDN 偶发 TCP reset 时透明恢复，不产生 EOF
+  ///   （签名过期导致的 403 重连无效，仍由断流自愈逻辑重新取地址）
+  /// 字节上限 demuxer-max-bytes 不在此设置，统一由 PlayerConfiguration.
+  /// bufferSize（见 [recommendBufferSizeMb] 与用户自定义值）控制，避免重复。
   Map<String, String> get mpvPreset {
     switch (this) {
       case LiveBufferMode.lowLatency:
         return const {
-          'cache-secs': '0.5',
-          'audio-buffer': '0.05',
-          // mpv framedrop 合法值仅 no/vo/decoder/decoder+vo，
-          // 旧值 decode+vo+none 会报 fatal "Invalid value" 导致配置完全不生效
+          'cache': 'yes',
+          'cache-on-disk': 'no',
+          'force-seekable': 'yes',
+          'cache-secs': '2',
+          'demuxer-readahead-secs': '2',
+          'demuxer-max-back-bytes': '4194304',
+          'demuxer-donate-buffer': 'no',
+          'demuxer-thread': 'yes',
+          'demuxer-lavf-probesize': '1048576',
+          'demuxer-lavf-analyzeduration': '1',
+          // 低延迟档：缓存耗尽不暂停等待，靠丢帧保实时
+          'cache-pause': 'no',
           'framedrop': 'decoder+vo',
-          'swapchain-depth': '1',
-          'cache-default': '2097152',
-          'cache-backbuffer': '524288',
+          'audio-buffer': '0.1',
           'network-timeout': '10',
+          'hwdec-software-fallback': '1',
+          'stream-lavf-o':
+              'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2',
         };
       case LiveBufferMode.balanced:
         return const {
-          'cache-secs': '2',
-          'audio-buffer': '0.2',
-          // 旧值 vo+none 非法，mpv 直接拒绝整个 framedrop 选项
+          'cache': 'yes',
+          'cache-on-disk': 'no',
+          'force-seekable': 'yes',
+          'cache-secs': '20',
+          'demuxer-readahead-secs': '8',
+          'demuxer-max-back-bytes': '8388608',
+          'demuxer-donate-buffer': 'no',
+          'demuxer-thread': 'yes',
+          'demuxer-lavf-probesize': '2097152',
+          'demuxer-lavf-analyzeduration': '2',
+          'cache-pause': 'yes',
+          'cache-pause-wait': '4',
           'framedrop': 'vo',
-          'swapchain-depth': '2',
-          'cache-default': '8388608',
-          'cache-backbuffer': '2097152',
+          'audio-buffer': '0.3',
           'network-timeout': '15',
+          'hwdec-software-fallback': '1',
+          'stream-lavf-o':
+              'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2',
         };
       case LiveBufferMode.antiJitter:
         return const {
-          'cache-secs': '8',
-          'audio-buffer': '0.4',
+          'cache': 'yes',
+          'cache-on-disk': 'no',
+          'force-seekable': 'yes',
+          'cache-secs': '30',
+          'demuxer-readahead-secs': '10',
+          'demuxer-max-back-bytes': '8388608',
+          'demuxer-donate-buffer': 'no',
+          'demuxer-thread': 'yes',
+          'demuxer-lavf-probesize': '2097152',
+          'demuxer-lavf-analyzeduration': '2',
+          'cache-pause': 'yes',
+          'cache-pause-wait': '4',
           'framedrop': 'vo',
-          'swapchain-depth': '3',
-          'cache-default': '33554432',
-          'cache-backbuffer': '8388608',
+          'audio-buffer': '0.5',
           'network-timeout': '20',
+          'hwdec-software-fallback': '1',
+          'stream-lavf-o':
+              'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2',
         };
     }
   }
 
+  /// 各档位的 demuxer 缓存字节下限（MB），最终取此值与用户自定义的较大者。
   int get recommendBufferSizeMb {
     switch (this) {
       case LiveBufferMode.lowLatency:
-        return 8;
+        return 16;
       case LiveBufferMode.balanced:
-        return 32;
+        return 48;
       case LiveBufferMode.antiJitter:
-        return 64;
+        return 96;
     }
   }
 }

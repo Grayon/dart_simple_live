@@ -64,12 +64,9 @@ mixin PlayerMixin {
     }
 
     // 直播缓冲策略 + 基础网络参数（全平台）
-    // Android 使用完整 preset（含 swapchain-depth / mediacodec 关联项）；
-    // 桌面端只应用通用属性（swapchain-depth 仅 Android 有意义），并针对 macOS 做 ao/coreaudio 优化。
     final preset =
         AppSettingsController.instance.playerLiveBufferMode.value.mpvPreset;
     for (final e in preset.entries) {
-      if (!Platform.isAndroid && e.key == 'swapchain-depth') continue;
       await pp.setProperty(e.key, e.value);
     }
     // macOS：默认 ao 选 coreaudio（比 avfoundation 更稳、低延迟），强制 48k 采样避免
