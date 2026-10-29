@@ -434,6 +434,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 关闭页面时统一释放
   final List<FlvSpliceRelay> _flvRelays = <FlvSpliceRelay>[];
 
+  /// 播放列表代际：每次 initPlaylist 自增。自愈/刷新/切房并发时，旧流程在各
+  /// await 后发现已过期即退出，避免对同一个 mpv 并发 loadfile 触发内部断言
+  int _playlistGeneration = 0;
+
   Future<void> _closeFlvRelays() async {
     if (_flvRelays.isEmpty) return;
     final relays = List<FlvSpliceRelay>.of(_flvRelays);
@@ -458,16 +462,27 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   Future<void> initPlaylist() async {
+    final generation = ++_playlistGeneration;
     currentLineInfo.value = "线路${currentLineIndex + 1}";
     errorMsg.value = "";
 
-    // 重建播放列表前先关闭旧中继，避免端口与上游连接泄漏
+    // 关键顺序：必须先让 mpv 有序停止当前流（在其内部完成 demuxer 拆除），
+    // 才能关闭它仍在读取的本地中继并 loadfile 新列表。若先强制关闭中继
+    // socket（旧实现的顺序），mpv 核心线程会在异常断流状态下立刻收到新的
+    // loadfile，触发 mp_play_files 内部 assert 直接 SIGABRT 闪退。
+    await player.stop();
+    if (generation != _playlistGeneration || _pageClosed) return;
+
+    // 播放器已停止读取，关闭旧中继不会再打断 mpv
     await _closeFlvRelays();
+    if (generation != _playlistGeneration || _pageClosed) return;
 
     final forceHttps =
         AppSettingsController.instance.playerForceHttps.value;
     final headers = playHeaders ?? const <String, String>{};
     final mediaList = <Media>[];
+    // 本次建单创建的中继；过期退出时只关自己的，不动新一代的中继
+    final myRelays = <FlvSpliceRelay>[];
 
     for (var lineIndex = 0; lineIndex < playUrls.length; lineIndex++) {
       var finalUrl = playUrls[lineIndex];
@@ -506,6 +521,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             },
           );
           _flvRelays.add(relay);
+          myRelays.add(relay);
           inputUrl = relay.inputUri.toString();
           // 鉴权头由中继自己带给上游；交给播放器访问 loopback 只会泄漏进
           // 原生播放器的请求日志
@@ -519,8 +535,20 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       mediaList.add(Media(inputUrl, httpHeaders: inputHeaders));
     }
 
+    if (generation != _playlistGeneration || _pageClosed) {
+      // 建单期间被更新的一次建单/切房取代：关掉刚创建的中继后退出，
+      // 新流程会自己处理，绝不能在过期流程里再 open 同一个播放器
+      for (final relay in myRelays) {
+        _flvRelays.remove(relay);
+        unawaited(relay.close());
+      }
+      return;
+    }
+
     // 初始化播放器并设置 ao 参数
     await initializePlayer();
+
+    if (generation != _playlistGeneration || _pageClosed) return;
 
     await player.open(Playlist(mediaList));
   }
@@ -1317,7 +1345,10 @@ ${error?.stackTrace}''');
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
 
-    unawaited(_closeFlvRelays());
+    // 使在途的建单流程立即失效，并先停播放器再关中继，避免 mpv 读取中被
+    // 强制断开后又收到 loadfile 触发内部断言
+    _playlistGeneration++;
+    unawaited(player.stop().then((_) => _closeFlvRelays()));
     liveDanmaku.stop();
     danmakuController = null;
     _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
