@@ -33,7 +33,7 @@ jobs:
       # 签出代码
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: ${{ github.sha }}  # 分支构建临时改动：检出 tag 所指 commit 而非 dev，勿合并
 
       # 从 Tag 同步版本号到 pubspec.yaml（确保 App 内显示版本与 Tag 一致）
       - name: Sync version from tag
@@ -118,7 +118,7 @@ jobs:
       # 签出代码
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: ${{ github.sha }}  # 分支构建临时改动：检出 tag 所指 commit 而非 dev，勿合并
 
       # 从 Tag 同步版本号到 pubspec.yaml（确保 App 内显示版本与 Tag 一致）
       - name: Sync version from tag
@@ -216,7 +216,7 @@ jobs:
       # 签出代码
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: ${{ github.sha }}  # 分支构建临时改动：检出 tag 所指 commit 而非 dev，勿合并
       # 从 Tag 同步版本号到 pubspec.yaml（确保 App 内显示版本与 Tag 一致）
       - name: Sync version from tag
         if: github.event_name == 'push'
@@ -272,7 +272,7 @@ jobs:
       # 签出代码
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: ${{ github.sha }}  # 分支构建临时改动：检出 tag 所指 commit 而非 dev，勿合并
       # 从 Tag 同步版本号到 pubspec.yaml（确保 App 内显示版本与 Tag 一致）
       - name: Sync version from tag
         if: github.event_name == 'push'
