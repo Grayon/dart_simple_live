@@ -6,6 +6,7 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
+import 'package:simple_live_app/app/constant.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -386,6 +387,17 @@ class Utils {
     }
     return num.toString();
   }
+
+  /// 平台公开的观众指标是否为真实观看人数。
+  ///
+  /// 抖音公开接口与弹幕 RoomUserSeq 推送的是真实观看人次；斗鱼（hot 热度）、
+  /// 虎牙（totalCount 人气）、B站（online 字段实为人气值）公开渠道只有热度，
+  /// 不存在可靠的真实人数来源。
+  static bool isRealAudienceCount(String siteId) => siteId == Constant.kDouyin;
+
+  /// 观众指标的展示名称，用于 Tooltip 等说明文案。
+  static String audienceMetricName(String siteId) =>
+      isRealAudienceCount(siteId) ? "真实观看人次" : "平台热度（非真实人数）";
 
   /// 检查相册权限
   static Future<bool> checkPhotoPermission() async {

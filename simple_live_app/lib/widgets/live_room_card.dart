@@ -58,10 +58,15 @@ class LiveRoomCard extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const Icon(
-                        Remix.fire_fill,
-                        color: Colors.white,
-                        size: 14,
+                      Tooltip(
+                        message: Utils.audienceMetricName(site.id),
+                        child: Icon(
+                          Utils.isRealAudienceCount(site.id)
+                              ? Remix.user_smile_line
+                              : Remix.fire_fill,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                       AppStyle.hGap4,
                       Text(

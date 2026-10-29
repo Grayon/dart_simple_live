@@ -380,22 +380,29 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               ),
             ),
             AppStyle.hGap12,
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Remix.fire_fill,
-                  size: 20,
-                  color: Colors.orange,
-                ),
-                AppStyle.hGap4,
-                Text(
-                  Utils.onlineToString(
-                    controller.detail.value?.online ?? 0,
+            Tooltip(
+              message: Utils.audienceMetricName(controller.site.id),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Utils.isRealAudienceCount(controller.site.id)
+                        ? Remix.user_smile_line
+                        : Remix.fire_fill,
+                    size: 20,
+                    color: Utils.isRealAudienceCount(controller.site.id)
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.orange,
                   ),
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ],
+                  AppStyle.hGap4,
+                  Text(
+                    Utils.onlineToString(
+                      controller.detail.value?.online ?? 0,
+                    ),
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
