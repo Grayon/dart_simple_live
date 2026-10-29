@@ -55,6 +55,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   Rx<LiveRoomDetail?> detail = Rx<LiveRoomDetail?>(null);
   var online = 0.obs;
+
+  /// 贵宾/舰长在线数（斗鱼弹幕推送、B站房间接口）；0 表示暂无数据，不展示
+  var nobleCount = 0.obs;
+
   var followed = false.obs;
   var liveStatus = false.obs;
   RxList<LiveSuperChatMessage> superChats = RxList<LiveSuperChatMessage>();
@@ -262,6 +266,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       ]);
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
+    } else if (msg.type == LiveMessageType.nobleOnline) {
+      nobleCount.value = msg.data;
     } else if (msg.type == LiveMessageType.superChat) {
       superChats.add(msg.data);
     }
@@ -333,6 +339,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       // 确认房间关注状态
       followed.value = DBService.instance.getFollowExist("${site.id}_$roomId");
       online.value = detail.value!.online;
+      nobleCount.value = detail.value!.nobleCount ?? 0;
       liveStatus.value = detail.value!.status || detail.value!.isRecord;
       if (liveStatus.value) {
         getPlayQualites();
@@ -547,6 +554,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         if (newDetail != null) {
           detail.value = newDetail;
           online.value = newDetail.online;
+          nobleCount.value = newDetail.nobleCount ?? nobleCount.value;
           if (!newDetail.status && !newDetail.isRecord) {
             Log.d("接口确认主播已下播");
             liveStatus.value = false;
@@ -1138,6 +1146,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     // 切换房间会重新走完整加载流程，中止可能仍在进行的断流自愈
     _recoveringStream = false;
     streamInterrupted.value = false;
+    nobleCount.value = 0;
 
     // 刷新信息
     loadData();

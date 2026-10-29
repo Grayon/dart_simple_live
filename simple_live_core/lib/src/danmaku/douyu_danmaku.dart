@@ -90,6 +90,21 @@ class DouyuDanmaku implements LiveDanmaku {
         );
 
         onMessage?.call(liveMsg);
+      } else if (type == "oni" || type == "oun") {
+        // oni：贵宾在线快照(vn)；oun：贵宾数更新(un)。斗鱼不公开真实总人数，
+        // 贵宾数是真实在线人数的下限参考，与手机 App 展示一致。
+        var count = int.tryParse(
+          (type == "oni" ? jsonData["vn"] : jsonData["un"]).toString(),
+        );
+        if (count != null && count >= 0) {
+          onMessage?.call(LiveMessage(
+            type: LiveMessageType.nobleOnline,
+            data: count,
+            color: LiveMessageColor.white,
+            message: "",
+            userName: "",
+          ));
+        }
       }
     } catch (e) {
       CoreLog.error(e);

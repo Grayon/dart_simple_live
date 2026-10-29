@@ -16,8 +16,15 @@ class LiveRoomDetail {
   /// 头像
   final String userAvatar;
 
-  /// 在线
+  /// 在线（平台公开指标：抖音为真实观看人次，其余平台为热度/人气值）
   final int online;
+
+  /// 累计看过人数（平台公开的真实人次，目前 B 站 App 接口提供）
+  final int? watchedCount;
+
+  /// 贵宾/舰长在线数（真实人数，仅为实际观众的下限；斗鱼由弹幕推送，
+  /// B 站为舰长数）
+  final int? nobleCount;
 
   /// 介绍
   final String? introduction;
@@ -50,6 +57,8 @@ class LiveRoomDetail {
     required this.userName,
     required this.userAvatar,
     required this.online,
+    this.watchedCount,
+    this.nobleCount,
     this.introduction,
     this.notice,
     required this.status,
@@ -69,6 +78,8 @@ class LiveRoomDetail {
       "userName": userName,
       "userAvatar": userAvatar,
       "online": online,
+      "watchedCount": watchedCount,
+      "nobleCount": nobleCount,
       "introduction": introduction,
       "notice": notice,
       "status": status,

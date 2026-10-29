@@ -380,33 +380,86 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               ),
             ),
             AppStyle.hGap12,
-            Tooltip(
-              message: Utils.audienceMetricName(controller.site.id),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Utils.isRealAudienceCount(controller.site.id)
-                        ? Remix.user_smile_line
-                        : Remix.fire_fill,
-                    size: 20,
-                    color: Utils.isRealAudienceCount(controller.site.id)
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.orange,
-                  ),
-                  AppStyle.hGap4,
-                  Text(
-                    Utils.onlineToString(
-                      controller.detail.value?.online ?? 0,
-                    ),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
+            _buildAudienceMetrics(context),
           ],
         ),
       ),
+    );
+  }
+
+  /// 观众指标：平台公开了真实人数的（抖音观看人次、B站看过人数、斗鱼贵宾/
+  /// B站舰长）优先展示；热度/人气作为参考放最后，悬停有语义说明。
+  Widget _buildAudienceMetrics(BuildContext context) {
+    final detail = controller.detail.value;
+    final siteId = controller.site.id;
+    final chips = <Widget>[];
+
+    void addChip(IconData icon, Color color, String text, String tooltip) {
+      chips.add(
+        Tooltip(
+          message: tooltip,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              AppStyle.hGap4,
+              Text(text, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (siteId == "bilibili") {
+      final watched = detail?.watchedCount ?? 0;
+      if (watched > 0) {
+        addChip(
+          Remix.eye_line,
+          Theme.of(context).colorScheme.primary,
+          "${Utils.onlineToString(watched)}人看过",
+          "累计看过人数（平台公开的真实人次）",
+        );
+      }
+      final guards = controller.nobleCount.value;
+      if (guards > 0) {
+        addChip(
+          Remix.vip_crown_fill,
+          Colors.amber.shade700,
+          "舰长${Utils.onlineToString(guards)}",
+          "大航海（舰长/提督/总督）在线数，真实人数",
+        );
+      }
+    } else if (siteId == "douyu") {
+      final noble = controller.nobleCount.value;
+      if (noble > 0) {
+        addChip(
+          Remix.vip_crown_fill,
+          Colors.amber.shade700,
+          "贵宾${Utils.onlineToString(noble)}",
+          "贵宾在线数（与斗鱼手机App一致），真实人数的下限参考",
+        );
+      }
+    }
+
+    // 热度/人气（抖音的 online 本身就是真实观看人次）
+    addChip(
+      Utils.isRealAudienceCount(siteId) ? Remix.user_smile_line : Remix.fire_fill,
+      Utils.isRealAudienceCount(siteId)
+          ? Theme.of(context).colorScheme.primary
+          : Colors.orange,
+      Utils.onlineToString(detail?.online ?? 0),
+      Utils.audienceMetricName(siteId),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < chips.length; i++) ...[
+          if (i > 0) AppStyle.vGap4,
+          chips[i],
+        ],
+      ],
     );
   }
 

@@ -278,6 +278,9 @@ class BiliBiliSite implements LiveSite {
       }
     }
 
+    // B站 web 接口只给人气值；真实"看过人数"和舰长数取安卓 App 接口（失败降级为 null）
+    final appAudience = await _getAppRoomAudience(realRoomId);
+
     return LiveRoomDetail(
       roomId: realRoomId,
       title: roomInfo["room_info"]["title"].toString(),
@@ -285,6 +288,8 @@ class BiliBiliSite implements LiveSite {
       userName: roomInfo["anchor_info"]["base_info"]["uname"].toString(),
       userAvatar: "${roomInfo["anchor_info"]["base_info"]["face"]}@100w.jpg",
       online: asT<int?>(roomInfo["room_info"]["online"]) ?? 0,
+      watchedCount: appAudience.watchedCount,
+      nobleCount: appAudience.guardCount,
       status: (asT<int?>(roomInfo["room_info"]["live_status"]) ?? 0) == 1,
       url: "https://live.bilibili.com/$roomId",
       introduction: roomInfo["room_info"]["description"].toString(),
@@ -314,6 +319,62 @@ class BiliBiliSite implements LiveSite {
     );
     print("【B站接口返回】roomId=$roomId, result=$result");
     return result["data"];
+  }
+
+  /// B站安卓 APP 鉴权参数（公开 APPKEY，与社区通用实现一致）
+  static const String _appKey = "1d8b6e7d45233436";
+  static const String _appSec = "560c52ccd288fed045859ed18bffd973";
+
+  /// 从 B站安卓 App 接口获取真实观众指标：
+  /// watched_show.num = 累计看过人数（与手机 App 房间页展示一致），
+  /// guard_info.count = 大航海/舰长在线数。web 端只公开人气值（room_info.online）。
+  /// 任何失败都静默降级——人气值仍然可用。
+  Future<({int? watchedCount, int? guardCount})> _getAppRoomAudience(
+    String roomId,
+  ) async {
+    try {
+      final params = <String, String>{
+        "actionKey": "appkey",
+        "appkey": _appKey,
+        "build": "6730300",
+        "c_locale": "zh_CN",
+        "channel": "bilibili",
+        "bili_local": "1",
+        "device": "phone",
+        "device_platform": "android",
+        "mobi_app": "android",
+        "platform": "android",
+        "room_id": roomId,
+        "ts":
+            (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString(),
+        "version_name": "7.3.0",
+      };
+      final sortedKeys = params.keys.toList()..sort();
+      final query = sortedKeys.map((k) {
+        return "${Uri.encodeComponent(k)}=${Uri.encodeComponent(params[k]!)}";
+      }).join("&");
+      final sign = md5.convert(utf8.encode("$query$_appSec")).toString();
+      final url =
+          "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom"
+          "?$query&sign=$sign";
+      final result = await HttpClient.instance.getJson(
+        url,
+        header: {
+          "user-agent":
+              "Mozilla/5.0 BiliDroid/7.3.0 (bbcallen@gmail.com)",
+        },
+      );
+      if (result["code"] != 0) {
+        return (watchedCount: null, guardCount: null);
+      }
+      final data = result["data"] as Map<String, dynamic>?;
+      final watched = asT<int?>(data?["watched_show"]?["num"]);
+      final guards = asT<int?>(data?["guard_info"]?["count"]);
+      return (watchedCount: watched, guardCount: guards);
+    } catch (e) {
+      print("【B站App接口】真实人数获取失败: $e");
+      return (watchedCount: null, guardCount: null);
+    }
   }
 
   @override

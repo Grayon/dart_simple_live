@@ -12,6 +12,9 @@ enum LiveMessageType {
 
   /// 醒目留言
   superChat,
+
+  /// 贵宾在线数（斗鱼 oni/oun 推送）
+  nobleOnline,
 }
 
 class LiveMessage {
