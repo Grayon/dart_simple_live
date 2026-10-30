@@ -59,6 +59,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 贵宾/舰长在线数（斗鱼弹幕推送、B站房间接口）；0 表示暂无数据，不展示
   var nobleCount = 0.obs;
 
+  /// 真实实时在线观众数（B站弹幕 ONLINE_RANK_COUNT 推送，仅部分房间下发）；0 表示暂无数据
+  var realOnlineCount = 0.obs;
+
+  /// 累计观看人次（B站 WATCHED_CHANGE 实时更新，初始取房间接口）；0 表示暂无数据
+  var watchedCount = 0.obs;
+
   var followed = false.obs;
   var liveStatus = false.obs;
   RxList<LiveSuperChatMessage> superChats = RxList<LiveSuperChatMessage>();
@@ -268,6 +274,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       online.value = msg.data;
     } else if (msg.type == LiveMessageType.nobleOnline) {
       nobleCount.value = msg.data;
+    } else if (msg.type == LiveMessageType.onlineCount) {
+      realOnlineCount.value = msg.data;
+    } else if (msg.type == LiveMessageType.watchedCount) {
+      watchedCount.value = msg.data;
     } else if (msg.type == LiveMessageType.superChat) {
       superChats.add(msg.data);
     }
@@ -340,6 +350,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       followed.value = DBService.instance.getFollowExist("${site.id}_$roomId");
       online.value = detail.value!.online;
       nobleCount.value = detail.value!.nobleCount ?? 0;
+      watchedCount.value = detail.value!.watchedCount ?? 0;
+      realOnlineCount.value = 0;
       liveStatus.value = detail.value!.status || detail.value!.isRecord;
       if (liveStatus.value) {
         getPlayQualites();
@@ -555,6 +567,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
           detail.value = newDetail;
           online.value = newDetail.online;
           nobleCount.value = newDetail.nobleCount ?? nobleCount.value;
+          if (watchedCount.value == 0) {
+            watchedCount.value = newDetail.watchedCount ?? 0;
+          }
           if (!newDetail.status && !newDetail.isRecord) {
             Log.d("接口确认主播已下播");
             liveStatus.value = false;
@@ -1147,6 +1162,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     _recoveringStream = false;
     streamInterrupted.value = false;
     nobleCount.value = 0;
+    realOnlineCount.value = 0;
+    watchedCount.value = 0;
 
     // 刷新信息
     loadData();

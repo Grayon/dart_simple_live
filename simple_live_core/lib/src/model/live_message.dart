@@ -15,6 +15,12 @@ enum LiveMessageType {
 
   /// 贵宾在线数（斗鱼 oni/oun 推送）
   nobleOnline,
+
+  /// 真实在线观众数（B站 ONLINE_RANK_COUNT 推送，仅部分房间下发）
+  onlineCount,
+
+  /// 累计观看人次更新（B站 WATCHED_CHANGE 推送）
+  watchedCount,
 }
 
 class LiveMessage {

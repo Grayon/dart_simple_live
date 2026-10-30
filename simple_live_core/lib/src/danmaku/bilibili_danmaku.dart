@@ -232,6 +232,35 @@ class BiliBiliDanmaku implements LiveDanmaku {
           data: sc,
         );
         onMessage?.call(liveMsg);
+      } else if (cmd == "ONLINE_RANK_COUNT") {
+        // 高能观众榜计数，其中 online_count 为真实在线观众数
+        // （count 为榜单条目数，可能被截断，不可用）；仅部分房间下发。
+        var onlineCount = asT<int?>(obj["data"]?["online_count"]);
+        if (onlineCount != null && onlineCount >= 0) {
+          onMessage?.call(
+            LiveMessage(
+              type: LiveMessageType.onlineCount,
+              data: onlineCount,
+              color: LiveMessageColor.white,
+              message: "",
+              userName: "",
+            ),
+          );
+        }
+      } else if (cmd == "WATCHED_CHANGE") {
+        // 累计观看人次，进房及人数变化时推送
+        var watchedCount = asT<int?>(obj["data"]?["num"]);
+        if (watchedCount != null && watchedCount >= 0) {
+          onMessage?.call(
+            LiveMessage(
+              type: LiveMessageType.watchedCount,
+              data: watchedCount,
+              color: LiveMessageColor.white,
+              message: "",
+              userName: "",
+            ),
+          );
+        }
       }
     } catch (e) {
       CoreLog.error(e);

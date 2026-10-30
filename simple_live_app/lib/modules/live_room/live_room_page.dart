@@ -390,11 +390,12 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   /// 观众指标：平台公开了真实人数的（抖音观看人次、B站看过人数、斗鱼贵宾/
   /// B站舰长）优先展示；热度/人气作为参考放最后，悬停有语义说明。
   Widget _buildAudienceMetrics(BuildContext context) {
-    final detail = controller.detail.value;
-    final siteId = controller.site.id;
-    final chips = <Widget>[];
+    return Obx(() {
+      final detail = controller.detail.value;
+      final siteId = controller.site.id;
+      final chips = <Widget>[];
 
-    void addChip(IconData icon, Color color, String text, String tooltip) {
+      void addChip(IconData icon, Color color, String text, String tooltip) {
       chips.add(
         Tooltip(
           message: tooltip,
@@ -411,7 +412,20 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     }
 
     if (siteId == "bilibili") {
-      final watched = detail?.watchedCount ?? 0;
+      final realOnline = controller.realOnlineCount.value;
+      if (realOnline > 0) {
+        addChip(
+          Remix.user_smile_line,
+          Theme.of(context).colorScheme.primary,
+          "${Utils.onlineToString(realOnline)}人在线",
+          "直播间实时在线观众数（与B站App一致，仅部分房间开放）",
+        );
+      }
+      // WS WATCHED_CHANGE 实时更新；未推送时回退进房接口的累计看过数
+      final watched =
+          controller.watchedCount.value > 0
+          ? controller.watchedCount.value
+          : (detail?.watchedCount ?? 0);
       if (watched > 0) {
         addChip(
           Remix.eye_line,
@@ -451,16 +465,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       Utils.audienceMetricName(siteId),
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < chips.length; i++) ...[
-          if (i > 0) AppStyle.vGap4,
-          chips[i],
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < chips.length; i++) ...[
+            if (i > 0) AppStyle.vGap4,
+            chips[i],
+          ],
         ],
-      ],
-    );
+      );
+    });
   }
 
   Widget buildBottomActions(BuildContext context) {
