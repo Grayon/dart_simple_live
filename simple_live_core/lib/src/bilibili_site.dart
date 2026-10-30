@@ -153,11 +153,43 @@ class BiliBiliSite implements LiveSite {
     return qualities;
   }
 
+  /// 是否为全转码房间尝试合成 raw 原画线路（参考 chinasoul/BT）
+  static bool enableRawLine = false;
+
+  /// 全转码房间的转码码率路径后缀，剥掉后即原画 raw
+  static const List<String> _transcodeSuffixes = [
+    "_bluray/",
+    "_prohevc/",
+    "_blueray/",
+    "_4k/",
+    "_uhd/",
+    "_pro_h264/",
+  ];
+
+  /// 把转码线路路径中的码率后缀段去掉，合成原画 raw 地址；
+  /// 已在原画 CDN（host 含 gotcha）或无后缀时返回 null
+  String? _buildRawUrl(String url) {
+    final queryIndex = url.indexOf('?');
+    final path = queryIndex >= 0 ? url.substring(0, queryIndex) : url;
+    final host = Uri.tryParse(url)?.host ?? "";
+    if (host.contains("gotcha")) {
+      return null;
+    }
+    for (var suffix in _transcodeSuffixes) {
+      if (path.contains(suffix)) {
+        final rawPath = path.replaceFirst(suffix, "/");
+        return queryIndex >= 0 ? rawPath + url.substring(queryIndex) : rawPath;
+      }
+    }
+    return null;
+  }
+
   @override
   Future<LivePlayUrl> getPlayUrls(
       {required LiveRoomDetail detail,
       required LivePlayQuality quality}) async {
     List<String> urls = [];
+    var acceptQnSet = <int>{};
     var result = await HttpClient.instance.getJson(
       "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
       queryParameters: {
@@ -176,6 +208,12 @@ class BiliBiliSite implements LiveSite {
       for (var formatItem in formatList) {
         var codecList = formatItem["codec"];
         for (var codecItem in codecList) {
+          for (var qn in (codecItem["accept_qn"] ?? [])) {
+            var qnValue = int.tryParse(qn.toString());
+            if (qnValue != null) {
+              acceptQnSet.add(qnValue);
+            }
+          }
           var urlList = codecItem["url_info"];
           var baseUrl = codecItem["base_url"].toString();
           for (var urlItem in urlList) {
@@ -194,6 +232,21 @@ class BiliBiliSite implements LiveSite {
         return -1;
       }
     });
+    // 全转码房间（不含原画 250，或出现 4K 转码档 400）在开启开关时，
+    // 从转码线路合成 raw 原画地址并插到最前，部分 CDN 拒绝时后续线路兜底
+    if (enableRawLine &&
+        (!acceptQnSet.contains(250) || acceptQnSet.contains(400))) {
+      final rawUrls = <String>[];
+      for (var url in List<String>.of(urls)) {
+        var rawUrl = _buildRawUrl(url);
+        if (rawUrl != null &&
+            !urls.contains(rawUrl) &&
+            !rawUrls.contains(rawUrl)) {
+          rawUrls.add(rawUrl);
+        }
+      }
+      urls.insertAll(0, rawUrls);
+    }
     return LivePlayUrl(
       urls: urls,
       headers: {

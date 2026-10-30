@@ -105,6 +105,9 @@ class LocalStorageService extends GetxService {
   /// 播放器强制使用HTTPS
   static const String kPlayerForceHttps = "PlayerForceHttps";
 
+  /// B站全转码房间尝试解析 raw 原画高码率线路
+  static const String kBiliRawLine = "BiliRawLine";
+
   /// 自动全屏
   static const String kAutoFullScreen = "AutoFullScreen";
 

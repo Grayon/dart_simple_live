@@ -4,6 +4,7 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_core/simple_live_core.dart';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -182,6 +183,10 @@ class AppSettingsController extends GetxController {
 
     playerForceHttps.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerForceHttps, false);
+
+    biliRawLine.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kBiliRawLine, false);
+    BiliBiliSite.enableRawLine = biliRawLine.value;
 
     autoFullScreen.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoFullScreen, false);
@@ -646,5 +651,14 @@ class AppSettingsController extends GetxController {
     playerForceHttps.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kPlayerForceHttps, e);
+  }
+
+  /// B站全转码房间解析 raw 原画高码率线路
+  var biliRawLine = false.obs;
+  void setBiliRawLine(bool e) {
+    biliRawLine.value = e;
+    BiliBiliSite.enableRawLine = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kBiliRawLine, e);
   }
 }

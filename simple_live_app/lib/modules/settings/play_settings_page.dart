@@ -125,6 +125,18 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     },
                   ),
                 ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "B站原画Raw高码率",
+                    subtitle:
+                        "全转码房间尝试解析原画Raw线路（8-15M），部分CDN不支持会自动回退",
+                    value: controller.biliRawLine.value,
+                    onChanged: (e) {
+                      controller.setBiliRawLine(e);
+                    },
+                  ),
+                ),
               ],
             ),
           ),
