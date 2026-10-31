@@ -43,6 +43,16 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   Rx<LiveRoomDetail?> detail = Rx<LiveRoomDetail?>(null);
   var online = 0.obs;
+
+  /// 贵宾/舰长在线数（斗鱼弹幕推送、B站房间接口）；0 表示暂无数据
+  var nobleCount = 0.obs;
+
+  /// 真实实时在线观众数（B站 ONLINE_RANK_COUNT 推送，仅部分房间下发）
+  var realOnlineCount = 0.obs;
+
+  /// 累计观看人次（B站 WATCHED_CHANGE 推送，初始取房间接口）
+  var watchedCount = 0.obs;
+
   var followed = false.obs;
   var liveStatus = false.obs;
 
@@ -158,6 +168,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       ]);
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
+    } else if (msg.type == LiveMessageType.nobleOnline) {
+      nobleCount.value = msg.data;
+    } else if (msg.type == LiveMessageType.onlineCount) {
+      realOnlineCount.value = msg.data;
+    } else if (msg.type == LiveMessageType.watchedCount) {
+      watchedCount.value = msg.data;
     } else if (msg.type == LiveMessageType.superChat) {
       //superChats.add(msg.data);
     }
@@ -172,6 +188,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
       addHistory();
       online.value = detail.value!.online;
+      nobleCount.value = detail.value!.nobleCount ?? 0;
+      watchedCount.value = detail.value!.watchedCount ?? 0;
+      realOnlineCount.value = 0;
       liveStatus.value = detail.value!.status || detail.value!.isRecord;
       if (liveStatus.value) {
         getPlayQualites();

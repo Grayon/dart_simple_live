@@ -12,6 +12,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/widgets/audience_metrics.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:window_manager/window_manager.dart';
@@ -121,10 +122,10 @@ Widget buildFullControls(
             top: (controller.showControlsState.value &&
                     !controller.lockControlsState.value)
                 ? 0
-                : -(48 + padding.top),
+                : -(72 + padding.top),
             duration: const Duration(milliseconds: 200),
             child: Container(
-              height: 48 + padding.top,
+              height: 72 + padding.top,
               padding: EdgeInsets.only(
                 left: padding.left + 12,
                 right: padding.right + 12,
@@ -158,11 +159,28 @@ Widget buildFullControls(
                   ),
                   AppStyle.hGap12,
                   Expanded(
-                    child: Text(
-                      "${controller.detail.value?.title} - ${controller.detail.value?.userName}",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "${controller.detail.value?.title} - ${controller.detail.value?.userName}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 16),
+                        ),
+                        // 标题下方：在线人数（贵宾/舰长/看过）与热度
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: AudienceMetrics(
+                            controller: controller,
+                            onDarkBackground: true,
+                            horizontal: true,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   AppStyle.hGap12,

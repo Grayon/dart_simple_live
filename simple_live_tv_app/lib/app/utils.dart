@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
+import 'package:simple_live_tv_app/app/constant.dart';
 
 class Utils {
   static late PackageInfo packageInfo;
@@ -247,6 +248,13 @@ class Utils {
     }
     return int.parse(num);
   }
+
+  /// 抖音的 online 字段即真实观看人次，其他平台是热度/人气
+  static bool isRealAudienceCount(String siteId) =>
+      siteId == Constant.kDouyin;
+
+  static String audienceMetricName(String siteId) =>
+      isRealAudienceCount(siteId) ? "真实观看人次" : "平台热度（非真实人数）";
 
   static String onlineToString(int num) {
     if (num >= 10000) {

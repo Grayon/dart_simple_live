@@ -10,6 +10,7 @@ import 'package:simple_live_tv_app/app/sites.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
 import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_tv_app/services/follow_user_service.dart';
+import 'package:simple_live_tv_app/widgets/audience_metrics.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_button.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_list_tile.dart';
 import 'package:simple_live_tv_app/widgets/card/anchor_card.dart';
@@ -91,6 +92,9 @@ Widget buildControls(BuildContext context, LiveRoomController controller) {
                         overflow: TextOverflow.ellipsis,
                         style: AppStyle.textStyleWhite.copyWith(fontSize: 24.w),
                       ),
+                      SizedBox(height: 8.w),
+                      // 标题下方：在线人数（贵宾/舰长/看过）与热度
+                      AudienceMetrics(controller: controller),
                     ],
                   ),
                 ),
