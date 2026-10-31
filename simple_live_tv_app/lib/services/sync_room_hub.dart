@@ -31,7 +31,8 @@ class SyncRoomHub {
     router.get(path, (shelf.Request request) {
       // 每个请求新建 handler，把 shelf Request 带进回调（用于判断 loopback）
       final handler = webSocketHandler(
-        (WebSocketChannel channel) => _handle(channel, request),
+        (WebSocketChannel channel, String? protocol) =>
+            _handle(channel, request),
       );
       return handler(request);
     });
