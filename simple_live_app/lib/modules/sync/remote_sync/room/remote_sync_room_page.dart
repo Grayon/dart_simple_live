@@ -4,7 +4,7 @@ import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/room/remote_sync_room_controller.dart';
-import 'package:simple_live_app/services/signalr_service.dart';
+import 'package:simple_live_app/services/sync_room_service.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
 
 class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
@@ -14,77 +14,12 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("数据同步"),
+        title: Text(controller.isLan ? "内网直连" : "云端房间"),
         actions: [
           Padding(
             padding: AppStyle.edgeInsetsH12,
-            child: StreamBuilder<SignalRConnectionState>(
-              stream: controller.signalR.stateStream,
-              builder: (context, snapshot) {
-                if (snapshot.hasData) {
-                  switch (snapshot.data) {
-                    case SignalRConnectionState.connected:
-                      return Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          AppStyle.hGap8,
-                          const Text(
-                            '已连接',
-                            style: TextStyle(
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      );
-                    case SignalRConnectionState.disconnected:
-                      return Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          AppStyle.hGap8,
-                          const Text(
-                            '断开连接',
-                            style: TextStyle(
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      );
-                    default:
-                      return const Row(
-                        children: [
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
-                          ),
-                          Text(
-                            '连接中',
-                            style: TextStyle(
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      );
-                  }
-                }
-                return const SizedBox();
-              },
+            child: Obx(
+              () => _stateWidget(controller.state.value),
             ),
           ),
         ],
@@ -92,17 +27,14 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
       body: ListView(
         padding: AppStyle.edgeInsetsA12.copyWith(top: 0),
         children: [
-          Visibility(
-            visible: controller.roomId.isEmpty,
-            child: SettingsCard(
-              child: ListTile(
-                visualDensity: VisualDensity.compact,
-                leading: const Icon(Remix.timer_line),
-                title: Obx(
-                  () => Text(
-                    "${controller.countDown.value}秒后房间将会自动关闭",
-                    style: const TextStyle(fontSize: 14),
-                  ),
+          SettingsCard(
+            child: ListTile(
+              visualDensity: VisualDensity.compact,
+              leading: const Icon(Remix.timer_line),
+              title: Obx(
+                () => Text(
+                  "${controller.countDown.value}秒后房间将会自动关闭",
+                  style: const TextStyle(fontSize: 14),
                 ),
               ),
             ),
@@ -110,7 +42,7 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
           Padding(
             padding: AppStyle.edgeInsetsA12,
             child: Text(
-              "房间号",
+              controller.isLan ? "本机地址" : "房间号",
               style: Get.textTheme.titleSmall,
             ),
           ),
@@ -227,9 +159,9 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
                     ),
                     title: Text.rich(
                       TextSpan(
-                        text: user.shortId,
+                        text: user.id,
                         style: const TextStyle(fontSize: 16),
-                        children: user.isCreator!
+                        children: user.creator
                             ? [
                                 WidgetSpan(
                                   child: Container(
@@ -254,8 +186,7 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
                     ),
                     subtitle: Text("${user.app} - v${user.version}"),
                     trailing: Visibility(
-                      visible: controller.signalR.hubConnection?.connectionId ==
-                          user.connectionId,
+                      visible: controller.service.selfId == user.id,
                       child: const Text(
                         "本机",
                       ),
@@ -268,6 +199,39 @@ class RemoteSyncRoomPage extends GetView<RemoteSyncRoomController> {
         ],
       ),
     );
+  }
+
+  Widget _stateWidget(SyncRoomConnectionState state) {
+    switch (state) {
+      case SyncRoomConnectionState.connected:
+        return const Row(
+          children: [
+            Icon(Icons.cloud_done, size: 16, color: Colors.green),
+            AppStyle.hGap8,
+            Text('已连接', style: TextStyle(fontSize: 14)),
+          ],
+        );
+      case SyncRoomConnectionState.disconnected:
+        return const Row(
+          children: [
+            Icon(Icons.cloud_off, size: 16, color: Colors.red),
+            AppStyle.hGap8,
+            Text('连接已断开', style: TextStyle(fontSize: 14)),
+          ],
+        );
+      case SyncRoomConnectionState.connecting:
+        return const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            AppStyle.hGap8,
+            Text('连接中', style: TextStyle(fontSize: 14)),
+          ],
+        );
+    }
   }
 
   Widget buildIcon(String platform) {

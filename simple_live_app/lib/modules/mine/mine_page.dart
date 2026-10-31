@@ -7,7 +7,7 @@ import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/routes/route_path.dart';
-import 'package:simple_live_app/services/signalr_service.dart';
+import 'package:simple_live_app/services/sync_room_service.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class MinePage extends StatelessWidget {
@@ -216,11 +216,11 @@ class MinePage extends StatelessWidget {
                       color: Colors.grey,
                     ),
                     onTap: () async {
-                      SignalRService signalRService = SignalRService();
-                      await signalRService.connect();
-                      //Get.toNamed(RoutePath.kTest);
-                      var room = await signalRService.createRoom();
-                      Log.logPrint(room);
+                      var service =
+                          SyncRoomService(SyncRoomArgs.cloudHost());
+                      await service.start();
+                      Log.logPrint('sync room: ${service.roomCode}');
+                      service.dispose();
                     },
                   ),
               ],

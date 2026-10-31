@@ -5,7 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/modules/sync/sync_controller.dart';
-import 'package:simple_live_tv_app/services/signalr_service.dart';
+import 'package:simple_live_tv_app/services/sync_room_service.dart';
 import 'package:simple_live_tv_app/services/sync_service.dart';
 import 'package:simple_live_tv_app/widgets/app_scaffold.dart';
 import 'package:simple_live_tv_app/widgets/button/highlight_button.dart';
@@ -62,13 +62,14 @@ class SyncPage extends GetView<SyncController> {
                       AppStyle.vGap16,
                       Obx(
                         () => Visibility(
-                          visible: SyncService.instance.httpRunning.value,
+                          visible: controller.cloudState.value ==
+                              SyncRoomConnectionState.connected,
                           child: GestureDetector(
                             onTap: () {
                               Get.back();
                             },
                             child: QrImageView(
-                              data: controller.currentRoomId.value,
+                              data: controller.cloudRoomId.value,
                               version: QrVersions.auto,
                               backgroundColor: Colors.white,
                               padding: AppStyle.edgeInsetsA24,
@@ -80,14 +81,14 @@ class SyncPage extends GetView<SyncController> {
                       AppStyle.vGap24,
                       Obx(
                         () => Visibility(
-                          visible: controller.state.value ==
-                              SignalRConnectionState.connected,
+                          visible: controller.cloudState.value ==
+                              SyncRoomConnectionState.connected,
                           child: Text.rich(
                             TextSpan(
-                              text: '房间号：',
+                              text: '云端房间号：',
                               children: [
                                 TextSpan(
-                                  text: controller.currentRoomId.value,
+                                  text: controller.cloudRoomId.value,
                                   style: AppStyle.textStyleWhite
                                       .copyWith(fontWeight: FontWeight.bold),
                                 )
@@ -100,10 +101,10 @@ class SyncPage extends GetView<SyncController> {
                       ),
                       Obx(
                         () => Visibility(
-                          visible: controller.state.value ==
-                              SignalRConnectionState.disconnected,
+                          visible: controller.cloudState.value ==
+                              SyncRoomConnectionState.disconnected,
                           child: Text(
-                            '连接已断开，请尝试重进此页面',
+                            '云端房间未连接，可以使用右侧内网直连\n或退出重进此页面重试',
                             style: AppStyle.textStyleWhite,
                             textAlign: TextAlign.center,
                           ),
@@ -111,10 +112,10 @@ class SyncPage extends GetView<SyncController> {
                       ),
                       Obx(
                         () => Visibility(
-                          visible: controller.state.value ==
-                              SignalRConnectionState.connecting,
+                          visible: controller.cloudState.value ==
+                              SyncRoomConnectionState.connecting,
                           child: Text(
-                            '正在创建房间...',
+                            '正在创建云端房间...',
                             style: AppStyle.textStyleWhite,
                             textAlign: TextAlign.center,
                           ),
@@ -123,8 +124,8 @@ class SyncPage extends GetView<SyncController> {
                       AppStyle.vGap12,
                       Obx(
                         () => Visibility(
-                          visible: controller.state.value ==
-                              SignalRConnectionState.connected,
+                          visible: controller.cloudState.value ==
+                              SyncRoomConnectionState.connected,
                           child: Text(
                             "${controller.countDown}秒后将自动关闭服务\n请扫描二维码或输入房间号进行连接",
                             style: AppStyle.textStyleWhite,
@@ -147,7 +148,7 @@ class SyncPage extends GetView<SyncController> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        "局域网同步",
+                        "内网直连",
                         style: AppStyle.titleStyleWhite.copyWith(
                           fontSize: 32.w,
                           fontWeight: FontWeight.bold,
@@ -163,7 +164,8 @@ class SyncPage extends GetView<SyncController> {
                               Get.back();
                             },
                             child: QrImageView(
-                              data: 'http://${SyncService.instance.ipAddress.value}:${SyncService.httpPort}',
+                              data:
+                                  'ws://${SyncService.instance.ipAddress.value}:${SyncService.httpPort}/ws',
                               version: QrVersions.auto,
                               backgroundColor: Colors.white,
                               padding: AppStyle.edgeInsetsA24,
