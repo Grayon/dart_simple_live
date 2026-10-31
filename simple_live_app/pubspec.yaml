@@ -66,7 +66,7 @@ dependencies:
   shelf: ^1.4.2
   shelf_router: ^1.1.4
   network_info_plus: 6.1.4 #（锁定，7.0.0属于AGP8.12.1 breaking批次）
-  web_socket_channel: ^2.4.5 #WebSocket（数据同步房间客户端）
+  web_socket_channel: ^3.0.1 #WebSocket（数据同步房间客户端）
   shelf_web_socket: ^3.0.0 #内网直连房间WebSocket服务端
 
   # 视频播放
