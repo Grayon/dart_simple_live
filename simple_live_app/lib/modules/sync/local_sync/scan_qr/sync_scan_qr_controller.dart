@@ -8,6 +8,7 @@ import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/routes/route_path.dart';
+import 'package:simple_live_app/services/sync_room_service.dart';
 
 class SyncScanQRControlelr extends BaseController {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
@@ -33,20 +34,23 @@ class SyncScanQRControlelr extends BaseController {
         return;
       }
 
-      // 如果是5位字符串，为房间号
-      if (code.length == 5) {
-        Get.offAndToNamed(RoutePath.kRemoteSyncRoom, arguments: code);
+      // 多个地址（多网卡）时弹窗选择
+      if (code.contains(";")) {
+        showPickerAddress(code.split(";"));
         return;
-      } else {
-        var addressList = code.split(";");
-        if (addressList.length >= 2) {
-          //弹窗选择
-          showPickerAddress(addressList);
-        } else {
-          Get.back(result: code);
-        }
       }
+      _routeCode(code);
     });
+  }
+
+  /// 云端房间号 / ws 内网直连直接进房；其他内容（旧版 http 地址）回传给入口页
+  void _routeCode(String code) {
+    final args = SyncScanCode.parseRoom(code);
+    if (args != null) {
+      Get.offAndToNamed(RoutePath.kRemoteSyncRoom, arguments: args);
+    } else {
+      Get.back(result: code);
+    }
   }
 
   void showPickerAddress(List<String> addressList) async {

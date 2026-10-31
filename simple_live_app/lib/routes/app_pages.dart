@@ -13,6 +13,7 @@ import 'package:simple_live_app/modules/sync/remote_sync/webdav/remote_sync_webd
 import 'package:simple_live_app/modules/sync/sync_page.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/room/remote_sync_room_controller.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/room/remote_sync_room_page.dart';
+import 'package:simple_live_app/services/sync_room_service.dart';
 import 'package:simple_live_app/modules/search/search_controller.dart';
 import 'package:simple_live_app/modules/search/search_page.dart';
 import 'package:simple_live_app/modules/sync/local_sync/device/sync_device_controller.dart';
@@ -216,7 +217,8 @@ class AppPages {
       page: () => const RemoteSyncRoomPage(),
       bindings: [
         BindingsBuilder.put(
-          () => RemoteSyncRoomController(Get.arguments ?? ""),
+          () => RemoteSyncRoomController(
+              Get.arguments as SyncRoomArgs),
         ),
       ],
     ),

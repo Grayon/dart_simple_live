@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+
 import 'package:simple_live_tv_app/app/constant.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_tv_app/app/controller/base_controller.dart';
@@ -12,57 +13,73 @@ import 'package:simple_live_tv_app/models/db/follow_user.dart';
 import 'package:simple_live_tv_app/models/db/history.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
 import 'package:simple_live_tv_app/services/db_service.dart';
-import 'package:simple_live_tv_app/services/signalr_service.dart';
+import 'package:simple_live_tv_app/services/sync_room_service.dart';
 
 class SyncController extends BaseController {
-  final SignalRService signalR = SignalRService();
-  StreamSubscription? _stateSubscription;
-  StreamSubscription? _roomDestroyedSubscription;
-  StreamSubscription? _roomUserUpdatedSubscription;
-  StreamSubscription? _onFavoriteSubscription;
-  StreamSubscription? _onHistorySubscription;
-  StreamSubscription? _onShieldWordSubscription;
-  StreamSubscription? _onBiliAccountSubscription;
-  var currentRoomId = "--".obs;
-  RxList<RoomUser> roomUsers = <RoomUser>[].obs;
+  /// 云端房间（跨网络中继）
+  late final SyncRoomService cloudService;
+
+  /// 内网直连房间（本机 loopback 作为创建者）
+  late final SyncRoomService lanService;
+
+  StreamSubscription? _cloudStateSub;
+  StreamSubscription? _cloudMsgSub;
+  StreamSubscription? _cloudDestroyedSub;
+  StreamSubscription? _lanStateSub;
+  StreamSubscription? _lanMsgSub;
+
+  var cloudRoomId = "--".obs;
+  var cloudState = SyncRoomConnectionState.connecting.obs;
+  var lanState = SyncRoomConnectionState.connecting.obs;
+
   Timer? _timer;
   var countDown = 600.obs;
 
-  Rx<SignalRConnectionState> state =
-      Rx<SignalRConnectionState>(SignalRConnectionState.connecting);
-
   @override
   void onInit() {
+    cloudService = SyncRoomService(SyncRoomArgs.cloudHost());
+    lanService = SyncRoomService(SyncRoomArgs.lanHost());
     connect();
     super.onInit();
   }
 
   void connect() async {
-    listenSignalR();
-    await signalR.connect();
-    if (signalR.state == SignalRConnectionState.connected) {
-      createRoom();
-    }
-  }
-
-  void createRoom() async {
-    try {
-      var resp = await signalR.createRoom();
-      if (resp.isSuccess) {
-        currentRoomId.value = resp.data!;
-        _startTimer();
-      } else {
-        SmartDialog.showToast(resp.message);
-        Get.back();
-      }
-    } catch (e) {
-      SmartDialog.showToast("创建房间失败");
+    _cloudStateSub = cloudService.stateStream.listen((state) {
+      cloudState.value = state;
+    });
+    _cloudMsgSub = cloudService.messageStream.listen(_onMessage);
+    _cloudDestroyedSub = cloudService.destroyedStream.listen((_) {
+      SmartDialog.showToast("云端房间已被销毁");
       Get.back();
+    });
+
+    _lanStateSub = lanService.stateStream.listen((state) {
+      lanState.value = state;
+    });
+    _lanMsgSub = lanService.messageStream.listen(_onMessage);
+
+    try {
+      await cloudService.start();
+      cloudRoomId.value = cloudService.roomCode ?? "--";
+      _startTimer();
+    } catch (e) {
+      Log.logPrint('cloud room failed: $e');
+      if (e is SyncRoomException) {
+        SmartDialog.showToast("云端房间创建失败：${e.message}");
+      }
+      cloudState.value = SyncRoomConnectionState.disconnected;
+    }
+
+    try {
+      await lanService.start();
+    } catch (e) {
+      Log.logPrint('lan room failed: $e');
+      lanState.value = SyncRoomConnectionState.disconnected;
     }
   }
 
   void _startTimer() {
-    // 倒计时5分钟，自动关闭页面
+    // 倒计时10分钟，自动关闭页面（与服务端 TTL 一致）
     countDown.value = 600;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       countDown--;
@@ -73,31 +90,21 @@ class SyncController extends BaseController {
     });
   }
 
-  void listenSignalR() {
-    _stateSubscription = signalR.stateStream.listen((event) {
-      state.value = event;
-    });
-    _roomDestroyedSubscription = signalR.onRoomDestroyedStream.listen((roomId) {
-      SmartDialog.showToast("房间已被销毁");
-      Get.back();
-    });
-    _roomUserUpdatedSubscription = signalR.onRoomUserUpdatedStream.listen(
-      (roomUsers) {
-        this.roomUsers.assignAll(roomUsers);
-      },
-    );
-    _onFavoriteSubscription = signalR.onFavoriteStream.listen((data) {
-      onReceiveFavorite(data.$1, data.$2);
-    });
-    _onHistorySubscription = signalR.onHistoryStream.listen((data) {
-      onReceiveHistory(data.$1, data.$2);
-    });
-    _onShieldWordSubscription = signalR.onShieldWordStream.listen((data) {
-      onReceiveShieldWord(data.$1, data.$2);
-    });
-    _onBiliAccountSubscription = signalR.onBiliAccountStream.listen((data) {
-      onReceiveBiliAccount(data.$1, data.$2);
-    });
+  void _onMessage(SyncRoomMessage message) {
+    switch (message.kind) {
+      case 'favorite':
+        onReceiveFavorite(message.overlay, message.content);
+        break;
+      case 'history':
+        onReceiveHistory(message.overlay, message.content);
+        break;
+      case 'shield_word':
+        onReceiveShieldWord(message.overlay, message.content);
+        break;
+      case 'bili_account':
+        onReceiveBiliAccount(message.overlay, message.content);
+        break;
+    }
   }
 
   void onReceiveFavorite(bool overlay, String data) async {
@@ -112,7 +119,6 @@ class SyncController extends BaseController {
       }
       SmartDialog.showToast('已同步关注用户列表');
       EventBus.instance.emit(Constant.kUpdateFollow, 0);
-      SmartDialog.showToast("已同步关注列表");
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
       Log.logPrint(e);
@@ -176,14 +182,13 @@ class SyncController extends BaseController {
   @override
   void onClose() {
     _timer?.cancel();
-    _stateSubscription?.cancel();
-    _roomDestroyedSubscription?.cancel();
-    _roomUserUpdatedSubscription?.cancel();
-    _onFavoriteSubscription?.cancel();
-    _onHistorySubscription?.cancel();
-    _onShieldWordSubscription?.cancel();
-    _onBiliAccountSubscription?.cancel();
-    signalR.dispose();
+    _cloudStateSub?.cancel();
+    _cloudMsgSub?.cancel();
+    _cloudDestroyedSub?.cancel();
+    _lanStateSub?.cancel();
+    _lanMsgSub?.cancel();
+    cloudService.dispose();
+    lanService.dispose();
     super.onClose();
   }
 }

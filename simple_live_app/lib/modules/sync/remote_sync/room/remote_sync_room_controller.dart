@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
@@ -16,27 +17,36 @@ import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
-import 'package:simple_live_app/services/signalr_service.dart';
+import 'package:simple_live_app/services/sync_room_service.dart';
+import 'package:simple_live_app/services/sync_service.dart';
 
 class RemoteSyncRoomController extends BaseController {
-  final String roomId;
-  final SignalRService signalR = SignalRService();
-  RemoteSyncRoomController(this.roomId) {
-    if (roomId.isNotEmpty) {
-      currentRoomId.value = roomId;
-    }
-  }
-  StreamSubscription? _roomDestroyedSubscription;
-  StreamSubscription? _roomUserUpdatedSubscription;
-  StreamSubscription? _onFavoriteSubscription;
-  StreamSubscription? _onHistorySubscription;
-  StreamSubscription? _onShieldWordSubscription;
-  StreamSubscription? _onBiliAccountSubscription;
+  final SyncRoomArgs args;
+  final SyncRoomService service;
+
+  RemoteSyncRoomController(this.args) : service = SyncRoomService(args);
+
+  StreamSubscription? _stateSubscription;
+  StreamSubscription? _usersSubscription;
+  StreamSubscription? _messageSubscription;
+  StreamSubscription? _destroyedSubscription;
+  Worker? _ipWorker;
+
+  /// 房间号（云端）或内网地址
   var currentRoomId = "--".obs;
-  RxList<RoomUser> roomUsers = <RoomUser>[].obs;
+
+  /// 二维码内容：云端为 5 位房间号，内网为 ws:// 地址
+  var qrData = "".obs;
+
+  var roomUsers = <SyncRoomPeer>[].obs;
+
+  var state = SyncRoomConnectionState.connecting.obs;
 
   Timer? _timer;
   var countDown = 600.obs;
+
+  bool get isLan => args.transport == SyncRoomTransport.lan;
+  bool get _isHost => args.isHost;
 
   @override
   void onInit() {
@@ -45,35 +55,81 @@ class RemoteSyncRoomController extends BaseController {
   }
 
   void connect() async {
-    listenSignalR();
-    await signalR.connect();
-    if (signalR.state == SignalRConnectionState.connected) {
-      if (roomId.isEmpty) {
-        createRoom();
-      } else {
-        joinRoom(roomId);
+    _stateSubscription = service.stateStream.listen((event) {
+      state.value = event;
+    });
+    _usersSubscription = service.usersStream.listen((users) {
+      roomUsers.assignAll(users);
+    });
+    _messageSubscription = service.messageStream.listen((message) {
+      switch (message.kind) {
+        case 'favorite':
+          onReceiveFavorite(message.overlay, message.content);
+          break;
+        case 'history':
+          onReceiveHistory(message.overlay, message.content);
+          break;
+        case 'shield_word':
+          onReceiveShieldWord(message.overlay, message.content);
+          break;
+        case 'bili_account':
+          onReceiveBiliAccount(message.overlay, message.content);
+          break;
       }
-    }
-  }
+    });
+    _destroyedSubscription = service.destroyedStream.listen((_) {
+      SmartDialog.showToast("房间已被销毁");
+      Get.back();
+    });
 
-  void createRoom() async {
     try {
-      var resp = await signalR.createRoom();
-      if (resp.isSuccess) {
-        currentRoomId.value = resp.data!;
-        _startTimer();
-      } else {
-        SmartDialog.showToast(resp.message);
-        Get.back();
-      }
+      await service.start();
+      _onConnected();
+    } on SyncRoomException catch (e) {
+      SmartDialog.showToast(e.message);
+      Get.back();
     } catch (e) {
-      SmartDialog.showToast("创建房间失败");
+      SmartDialog.showToast("连接房间失败");
+      Log.logPrint(e);
       Get.back();
     }
   }
 
+  void _onConnected() {
+    if (isLan) {
+      if (_isHost) {
+        // 内网主机：展示本机 IP，IP 刷新后同步更新
+        _updateLanInfo();
+        _ipWorker =
+            ever(SyncService.instance.ipAddress, (_) => _updateLanInfo());
+      } else {
+        currentRoomId.value = args.lanAddress ?? "";
+        qrData.value = 'ws://${args.lanAddress}/ws';
+      }
+    } else {
+      currentRoomId.value = service.roomCode ?? "";
+      qrData.value = service.roomCode ?? "";
+    }
+    _startTimer();
+  }
+
+  void _updateLanInfo() {
+    var ip = SyncService.instance.ipAddress.value;
+    var ips =
+        ip.split(';').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (ips.isEmpty) {
+      currentRoomId.value = "获取IP中...";
+      qrData.value = "";
+      return;
+    }
+    currentRoomId.value = '${ips.first}:${SyncRoomService.kLanPort}';
+    qrData.value = ips
+        .map((e) => 'ws://$e:${SyncRoomService.kLanPort}/ws')
+        .join(';');
+  }
+
   void _startTimer() {
-    // 倒计时5分钟，自动关闭页面
+    // 倒计时10分钟，自动关闭页面（与服务端 TTL 一致）
     countDown.value = 600;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       countDown--;
@@ -81,43 +137,6 @@ class RemoteSyncRoomController extends BaseController {
         timer.cancel();
         Get.back();
       }
-    });
-  }
-
-  void joinRoom(String roomId) async {
-    try {
-      var resp = await signalR.joinRoom(roomId);
-      if (!resp.isSuccess) {
-        SmartDialog.showToast(resp.message);
-        Get.back();
-      }
-    } catch (e) {
-      SmartDialog.showToast("加入房间失败");
-      Get.back();
-    }
-  }
-
-  void listenSignalR() {
-    _roomDestroyedSubscription = signalR.onRoomDestroyedStream.listen((roomId) {
-      SmartDialog.showToast("房间已被销毁");
-      Get.back();
-    });
-    _roomUserUpdatedSubscription = signalR.onRoomUserUpdatedStream.listen(
-      (roomUsers) {
-        this.roomUsers.assignAll(roomUsers);
-      },
-    );
-    _onFavoriteSubscription = signalR.onFavoriteStream.listen((data) {
-      onReceiveFavorite(data.$1, data.$2);
-    });
-    _onHistorySubscription = signalR.onHistoryStream.listen((data) {
-      onReceiveHistory(data.$1, data.$2);
-    });
-    _onShieldWordSubscription = signalR.onShieldWordStream.listen((data) {
-      onReceiveShieldWord(data.$1, data.$2);
-    });
-    _onBiliAccountSubscription = signalR.onBiliAccountStream.listen((data) {
-      onReceiveBiliAccount(data.$1, data.$2);
     });
   }
 
@@ -131,9 +150,8 @@ class RemoteSyncRoomController extends BaseController {
         var user = FollowUser.fromJson(item);
         await DBService.instance.followBox.put(user.id, user);
       }
-      SmartDialog.showToast('已同步关注用户列表');
-      EventBus.instance.emit(Constant.kUpdateFollow, 0);
       SmartDialog.showToast("已同步关注列表");
+      EventBus.instance.emit(Constant.kUpdateFollow, 0);
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
       Log.logPrint(e);
@@ -172,7 +190,6 @@ class RemoteSyncRoomController extends BaseController {
         AppSettingsController.instance.clearShieldList();
       }
       for (var item in jsonBody) {
-        // add to Hive
         AppSettingsController.instance.addShieldList(item);
       }
       SmartDialog.showToast('已同步屏蔽词');
@@ -205,123 +222,86 @@ class RemoteSyncRoomController extends BaseController {
     return overlay;
   }
 
+  bool get _hasOtherDevice =>
+      roomUsers.any((u) => u.id != service.selfId);
+
   void syncFollow() async {
-    try {
-      if (roomUsers.length <= 1) {
-        SmartDialog.showToast("无设备连接");
-        return;
-      }
-
-      var overlay = await showOverlayDialog();
-      SmartDialog.showLoading(msg: "发送中...");
-      var users = DBService.instance.getFollowList();
-      var data = json.encode(users.map((e) => e.toJson()).toList());
-
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
-        action: "SendFavorite",
-        overlay: overlay,
-        content: data,
-      );
-      if (resp.isSuccess) {
-        SmartDialog.showToast("已发送关注列表");
-      } else {
-        SmartDialog.showToast("发送失败:${resp.message}");
-      }
-    } catch (e) {
-      SmartDialog.showToast("发送失败:$e");
-      Log.logPrint(e);
-    } finally {
-      SmartDialog.dismiss();
-    }
+    await _send(
+      kind: 'favorite',
+      checkEmptyTip: "无设备连接",
+      sendingTip: "发送中...",
+      buildData: () {
+        var users = DBService.instance.getFollowList();
+        return json.encode(users.map((e) => e.toJson()).toList());
+      },
+      successTip: "已发送关注列表",
+    );
   }
 
   void syncHistory() async {
-    try {
-      if (roomUsers.length <= 1) {
-        SmartDialog.showToast("无设备连接");
-        return;
-      }
-      var overlay = await showOverlayDialog();
-      SmartDialog.showLoading(msg: "发送中...");
-      var histores = DBService.instance.getHistores();
-      var data = json.encode(histores.map((e) => e.toJson()).toList());
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
-        action: "SendHistory",
-        overlay: overlay,
-        content: data,
-      );
-      if (resp.isSuccess) {
-        SmartDialog.showToast("已发送历史记录");
-      } else {
-        SmartDialog.showToast("发送失败:${resp.message}");
-      }
-    } catch (e) {
-      SmartDialog.showToast("发送失败:$e");
-      Log.logPrint(e);
-    } finally {
-      SmartDialog.dismiss();
-    }
+    await _send(
+      kind: 'history',
+      checkEmptyTip: "无设备连接",
+      sendingTip: "发送中...",
+      buildData: () {
+        var histores = DBService.instance.getHistores();
+        return json.encode(histores.map((e) => e.toJson()).toList());
+      },
+      successTip: "已发送历史记录",
+    );
   }
 
   void syncBlockedWord() async {
-    try {
-      if (roomUsers.length <= 1) {
-        SmartDialog.showToast("无设备连接");
-        return;
-      }
-      var overlay = await showOverlayDialog();
-      SmartDialog.showLoading(msg: "发送中...");
-      var shieldList = AppSettingsController.instance.shieldList;
-      var data = json.encode(shieldList.toList());
-
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
-        action: "SendShieldWord",
-        overlay: overlay,
-        content: data,
-      );
-      if (resp.isSuccess) {
-        SmartDialog.showToast("已发送屏蔽词");
-      } else {
-        SmartDialog.showToast("发送失败:${resp.message}");
-      }
-    } catch (e) {
-      SmartDialog.showToast("发送失败:$e");
-      Log.logPrint(e);
-    } finally {
-      SmartDialog.dismiss();
-    }
+    await _send(
+      kind: 'shield_word',
+      checkEmptyTip: "无设备连接",
+      sendingTip: "发送中...",
+      buildData: () => json.encode(AppSettingsController.instance.shieldList.toList()),
+      successTip: "已发送屏蔽词",
+    );
   }
 
   void syncBiliAccount() async {
-    try {
-      if (roomUsers.length <= 1) {
-        SmartDialog.showToast("无设备连接");
-        return;
-      }
-      if (!BiliBiliAccountService.instance.logined.value) {
-        SmartDialog.showToast("未登录哔哩哔哩");
-        return;
-      }
-      SmartDialog.showLoading(msg: "发送中...");
+    if (!BiliBiliAccountService.instance.logined.value) {
+      SmartDialog.showToast("未登录哔哩哔哩");
+      return;
+    }
+    await _send(
+      kind: 'bili_account',
+      checkEmptyTip: "无设备连接",
+      sendingTip: "发送中...",
+      buildData: () => json.encode({
+        "cookie": BiliBiliAccountService.instance.cookie,
+      }),
+      successTip: "已发送哔哩哔哩账号",
+      alwaysOverlay: true,
+    );
+  }
 
-      var resp = await signalR.sendContent(
-        roomName: currentRoomId.value,
-        action: "SendBiliAccount",
-        overlay: true,
-        content: json.encode({
-          "cookie": BiliBiliAccountService.instance.cookie,
-        }),
-      );
-      if (resp.isSuccess) {
-        SmartDialog.showToast("已发送哔哩哔哩账号");
-      } else {
-        SmartDialog.showToast("发送失败:${resp.message}");
+  Future<void> _send({
+    required String kind,
+    required String checkEmptyTip,
+    required String sendingTip,
+    required String Function() buildData,
+    required String successTip,
+    bool alwaysOverlay = false,
+  }) async {
+    try {
+      if (!_hasOtherDevice) {
+        SmartDialog.showToast(checkEmptyTip);
+        return;
       }
+      final overlay =
+          alwaysOverlay ? true : await showOverlayDialog();
+      SmartDialog.showLoading(msg: sendingTip);
+      await service.send(
+        kind: kind,
+        overlay: overlay,
+        content: buildData(),
+      );
+      SmartDialog.showToast(successTip);
     } catch (e) {
-      SmartDialog.showToast("同步失败:$e");
+      SmartDialog.showToast("发送失败:$e");
       Log.logPrint(e);
     } finally {
       SmartDialog.dismiss();
@@ -330,25 +310,38 @@ class RemoteSyncRoomController extends BaseController {
 
   void showQRInfo() {
     Utils.showBottomSheet(
-      title: "房间信息",
+      title: isLan ? "内网直连信息" : "房间信息",
       child: Column(
         children: [
-          QrImageView(
-            data: currentRoomId.value,
-            version: QrVersions.auto,
-            backgroundColor: Colors.white,
-            padding: AppStyle.edgeInsetsA12,
-            size: 200,
-          ),
-          AppStyle.vGap24,
-          Text(
-            currentRoomId.value,
-            textAlign: TextAlign.center,
-            style: Get.textTheme.titleLarge,
-          ),
-          const Text(
-            "请使用其他Simple Live客户端扫描上方二维码\n建立连接后可选择需要同步的数据",
-            textAlign: TextAlign.center,
+          Obx(
+            () => qrData.value.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(),
+                  )
+                : Column(
+                    children: [
+                      QrImageView(
+                        data: qrData.value.split(';').first,
+                        version: QrVersions.auto,
+                        backgroundColor: Colors.white,
+                        padding: AppStyle.edgeInsetsA12,
+                        size: 200,
+                      ),
+                      AppStyle.vGap24,
+                      Text(
+                        currentRoomId.value,
+                        textAlign: TextAlign.center,
+                        style: Get.textTheme.titleLarge,
+                      ),
+                      Text(
+                        isLan
+                            ? "请确认两台设备处于同一局域网\n使用其他 Simple Live 客户端扫码直连"
+                            : "请使用其他Simple Live客户端扫描上方二维码\n建立连接后可选择需要同步的数据",
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -358,13 +351,12 @@ class RemoteSyncRoomController extends BaseController {
   @override
   void onClose() {
     _timer?.cancel();
-    _roomDestroyedSubscription?.cancel();
-    _roomUserUpdatedSubscription?.cancel();
-    _onFavoriteSubscription?.cancel();
-    _onHistorySubscription?.cancel();
-    _onShieldWordSubscription?.cancel();
-    _onBiliAccountSubscription?.cancel();
-    signalR.dispose();
+    _stateSubscription?.cancel();
+    _usersSubscription?.cancel();
+    _messageSubscription?.cancel();
+    _destroyedSubscription?.cancel();
+    _ipWorker?.dispose();
+    service.dispose();
     super.onClose();
   }
 }
