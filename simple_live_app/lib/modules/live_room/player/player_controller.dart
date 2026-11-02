@@ -69,6 +69,20 @@ mixin PlayerMixin {
     for (final e in preset.entries) {
       await pp.setProperty(e.key, e.value);
     }
+    // 关键：禁用 mpv 的 EOF 自动切下一条（media_kit 默认 keep-open=yes，仅在
+    // 列表最后一条停住，前面的条目 EOF 时仍会自动切到下一条）。
+    // media_kit 内置的 libmpv 为 0.36（0.38 及以前均有此缺陷，0.39 才修复）：
+    // EOF 自动切换期间若有排队 seek，queue_seek() 会把 stop_play 从
+    // AT_END_OF_FILE 清成 0，play_current_file 收尾断言失败直接 abort：
+    //   Assertion failed: (mpctx->stop_play), play_current_file, loadfile.c
+    // 多线路播放列表 + 直播流频繁 EOF 正好命中官方 issue #13778 的复现路径
+    // （官方修复 commit d59f4fd，2024-05 合入，v0.39.0 首次包含）。
+    // 官方给嵌入层的规避方案：不要依赖自动切条，EOF 由上层显式切。
+    // keep-open=always 会在 handle_keep_open 里先把 AT_END_OF_FILE 置为
+    // KEEP_PLAYING（早于任何排队 seek），且仍会推送 eof-reached，
+    // mediaEnd -> setPlayer/jump 的上层线路切换不受影响。
+    // 参考: https://github.com/mpv-player/mpv/issues/13778
+    await pp.setProperty('keep-open', 'always');
     // macOS：默认 ao 选 coreaudio（比 avfoundation 更稳、低延迟），强制 48k 采样避免
     // CoreAudio 重采样抖动产生破音；加 audio-channels 让 mpv 主动 downmix 到 stereo
     if (Platform.isMacOS) {

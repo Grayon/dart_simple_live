@@ -492,10 +492,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     currentLineInfo.value = lineDisplayName(currentLineIndex);
     errorMsg.value = "";
 
-    // 关键顺序：必须先让 mpv 有序停止当前流（在其内部完成 demuxer 拆除），
-    // 才能关闭它仍在读取的本地中继并 loadfile 新列表。若先强制关闭中继
-    // socket（旧实现的顺序），mpv 核心线程会在异常断流状态下立刻收到新的
-    // loadfile，触发 mp_play_files 内部 assert 直接 SIGABRT 闪退。
+    // 顺序：先让 mpv 有序停止当前流（在其内部完成 demuxer 拆除），再关闭它
+    // 仍可能读取的本地中继并 open 新列表，避免 mpv 在异常断流状态下立刻收到
+    // 新的 loadfile。注意 10-29/10-30 闪退的真正根因是 libmpv 0.36 EOF
+    // 自动切条触发的 queue_seek/stop_play 断言（见 player_controller.dart
+    // 中 keep-open=always 的说明），这里的顺序只是稳妥性保障。
     await player.stop();
     if (generation != _playlistGeneration || _pageClosed) return;
 
@@ -1279,7 +1280,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     // 重新设置LiveDanmaku
     liveDanmaku = site.liveSite.getDanmaku();
 
-    // 停止播放
+    // 停止播放；先作废可能正在执行的断流自愈/建单流程，防止它在本次 stop
+    // 之后、新房间建单之前把旧播放列表 open 进播放器
+    _playlistGeneration++;
     await player.stop();
     await _closeFlvRelays();
 
