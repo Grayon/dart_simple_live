@@ -86,6 +86,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 线路数据
   RxList<String> playUrls = RxList<String>();
 
+  /// 原画 raw 线路在 playUrls 中的下标
+  var rawLineIndexes = <int>{}.obs;
+
+  String lineDisplayName(int i) =>
+      "线路${i + 1}${rawLineIndexes.contains(i) ? " · Raw原画" : ""}";
+
   Map<String, String>? playHeaders;
 
   /// 当前线路
@@ -434,9 +440,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return;
     }
     playUrls.value = playUrl.urls;
+    rawLineIndexes.value = playUrl.rawIndexes;
     playHeaders = playUrl.headers;
     currentLineIndex = 0;
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
+    currentLineInfo.value = lineDisplayName(currentLineIndex);
     //重置错误次数
     mediaErrorRetryCount = 0;
     initPlaylist();
@@ -482,7 +489,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   Future<void> initPlaylist() async {
     final generation = ++_playlistGeneration;
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
+    currentLineInfo.value = lineDisplayName(currentLineIndex);
     errorMsg.value = "";
 
     // 关键顺序：必须先让 mpv 有序停止当前流（在其内部完成 demuxer 拆除），
@@ -573,7 +580,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   void setPlayer() async {
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
+    currentLineInfo.value = lineDisplayName(currentLineIndex);
     errorMsg.value = "";
 
     await player.jump(currentLineIndex);
@@ -707,9 +714,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
               currentQuality = qualityIndex;
               currentQualityInfo.value = qualities[qualityIndex].quality;
               playUrls.value = playUrl.urls;
+              rawLineIndexes.value = playUrl.rawIndexes;
               playHeaders = playUrl.headers;
               currentLineIndex = 0;
-              currentLineInfo.value = "线路1";
+              currentLineInfo.value = lineDisplayName(currentLineIndex);
               mediaErrorRetryCount = 0;
               streamInterrupted.value = false;
               await initPlaylist();
@@ -965,11 +973,21 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         child: ListView.builder(
           itemCount: playUrls.length,
           itemBuilder: (_, i) {
+            final isRaw = rawLineIndexes.contains(i);
             return RadioListTile(
               value: i,
-              title: Text("线路${i + 1}"),
+              title: Text(
+                isRaw ? "线路${i + 1}（Raw原画）" : "线路${i + 1}",
+                style: isRaw
+                    ? const TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                      )
+                    : null,
+              ),
               secondary: Text(
-                playUrls[i].contains(".flv") ? "FLV" : "HLS",
+                (isRaw ? "RAW · " : "") +
+                    (playUrls[i].contains(".flv") ? "FLV" : "HLS"),
               ),
             );
           },

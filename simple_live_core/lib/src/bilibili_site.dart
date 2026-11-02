@@ -189,6 +189,7 @@ class BiliBiliSite implements LiveSite {
       {required LiveRoomDetail detail,
       required LivePlayQuality quality}) async {
     List<String> urls = [];
+    var urlIsRaw = <bool>[];
     var acceptQnSet = <int>{};
     var result = await HttpClient.instance.getJson(
       "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
@@ -216,26 +217,40 @@ class BiliBiliSite implements LiveSite {
           }
           var urlList = codecItem["url_info"];
           var baseUrl = codecItem["base_url"].toString();
+          final isRaw =
+              (int.tryParse(codecItem["current_qn"].toString()) ?? 0) ==
+              10000;
           for (var urlItem in urlList) {
             urls.add(
               "${urlItem["host"]}$baseUrl${urlItem["extra"]}",
             );
+            urlIsRaw.add(isRaw);
           }
         }
       }
     }
-    // 对链接进行排序，包含mcdn的在后
-    urls.sort((a, b) {
-      if (a.contains("mcdn")) {
+    // 对链接进行排序，包含mcdn的在后（url 与 raw 标记需成对移动）
+    final pairs = <(String, bool)>[
+      for (var i = 0; i < urls.length; i++) (urls[i], urlIsRaw[i]),
+    ];
+    pairs.sort((a, b) {
+      if (a.$1.contains("mcdn")) {
         return 1;
       } else {
         return -1;
       }
     });
-    // 全转码房间（不含原画 250，或出现 4K 转码档 400）在开启开关时，
-    // 从转码线路合成 raw 原画地址并插到最前，部分 CDN 拒绝时后续线路兜底
-    if (enableRawLine &&
-        (!acceptQnSet.contains(250) || acceptQnSet.contains(400))) {
+    urls = [for (final pair in pairs) pair.$1];
+    urlIsRaw = [for (final pair in pairs) pair.$2];
+    final rawIndexes = <int>{};
+    for (var i = 0; i < urlIsRaw.length; i++) {
+      if (urlIsRaw[i]) {
+        rawIndexes.add(i);
+      }
+    }
+    // 房间未提供原画档（acceptQn 不含 10000）且开关开启时，
+    // 才从转码线路合成 raw 原画地址插到最前；CDN 拒绝时后续线路兜底
+    if (enableRawLine && !acceptQnSet.contains(10000)) {
       final rawUrls = <String>[];
       for (var url in List<String>.of(urls)) {
         var rawUrl = _buildRawUrl(url);
@@ -245,10 +260,18 @@ class BiliBiliSite implements LiveSite {
           rawUrls.add(rawUrl);
         }
       }
-      urls.insertAll(0, rawUrls);
+      if (rawUrls.isNotEmpty) {
+        // 排序后原下标会偏移，全部重建
+        urls.insertAll(0, rawUrls);
+        urlIsRaw.insertAll(0, List<bool>.filled(rawUrls.length, true));
+        rawIndexes
+          ..clear()
+          ..addAll(List<int>.generate(rawUrls.length, (i) => i));
+      }
     }
     return LivePlayUrl(
       urls: urls,
+      rawIndexes: rawIndexes,
       headers: {
         "referer": "https://live.bilibili.com",
         "user-agent":
